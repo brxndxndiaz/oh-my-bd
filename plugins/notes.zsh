@@ -1,44 +1,69 @@
 # ============================================================
-# oh-my-bd — notes.zsh — Shared notepad for human + AI
+# oh-my-bd — notes.zsh — Project notepad for human + AI
 # ============================================================
 
-export NOTEPAD="${HOME}/.notepad.md"
 export OMB_NOTE_ID=0
 
+_omb_note_file() {
+  echo "${PWD}/notes.md"
+}
+
 _omb_note_init() {
-  [[ -f "$NOTEPAD" ]] && return
+  local notepad="$(_omb_note_file)"
+  [[ -f "$notepad" ]] && return
   printf '%s\n' \
-    "# ============================================================" \
-    "# NOTEPAD — shared context between you and your AI agent" \
-    "# Sections: TASKS | CONTEXT | BUGS | IDEAS | DECISIONS | CODE" \
-    "# Format:   - [id] [timestamp] content" \
-    "# ============================================================" \
+    "# Notes" \
     "" \
-    "## TASKS" \
-    "## CONTEXT" \
-    "## BUGS" \
-    "## IDEAS" \
-    "## DECISIONS" \
-    "## CODE" \
-    > "$NOTEPAD"
+    "## Tasks" \
+    "" \
+    "## Context" \
+    "" \
+    "## Bugs" \
+    "" \
+    "## Ideas" \
+    "" \
+    "## Decisions" \
+    "" \
+    "## Code" \
+    > "$notepad"
 }
 
 _omb_note_section_line() {
-  local section="$1"
-  grep -n "^## ${section}$" "$NOTEPAD" 2>/dev/null | cut -d: -f1 | head -1
+  local notepad="$(_omb_note_file)"
+  grep -n "^## ${1}$" "$notepad" 2>/dev/null | cut -d: -f1 | head -1
 }
 
 _omb_note_next_id() {
+  local notepad="$(_omb_note_file)"
   local max_id
-  max_id="$(grep -o '\[ *[0-9]* *\]' "$NOTEPAD" 2>/dev/null | grep -o '[0-9]*' | sort -n | tail -1)"
+  max_id="$(grep -o '\[ *[0-9]* *\]' "$notepad" 2>/dev/null | grep -o '[0-9]*' | sort -n | tail -1)"
   echo $((max_id + 1))
 }
 
 note() {
+  local notepad="$(_omb_note_file)"
   _omb_note_init
 
-  if [[ -z "$1" ]]; then
-    ${EDITOR:-nano} "$NOTEPAD"
+  if [[ -z "$1" ]] || [[ "$1" == "help" ]]; then
+    cat << 'EOF'
+note — Project-local notes
+
+Usage:
+  note <text>        Append raw text
+  note task <text>   Add to Tasks
+  note ctx <text>    Add to Context
+  note bug <text>    Add to Bugs
+  note idea <text>   Add to Ideas
+  note dec <text>    Add to Decisions
+  note code <text>  Add to Code
+  note              Open in editor
+  notes             View all notes
+  note wip          Show incomplete tasks
+  note rm <id>      Remove by ID
+  note clear        Reset notes
+
+Notes are stored in ./notes.md in the current directory.
+EOF
     return
   fi
 
@@ -46,12 +71,12 @@ note() {
     task|ctx|bug|idea|dec|code)
       local section
       case "$1" in
-        task) section="TASKS" ;;
-        ctx)  section="CONTEXT" ;;
-        bug)  section="BUGS" ;;
-        idea) section="IDEAS" ;;
-        dec)  section="DECISIONS" ;;
-        code) section="CODE" ;;
+        task) section="Tasks" ;;
+        ctx)  section="Context" ;;
+        bug)  section="Bugs" ;;
+        idea) section="Ideas" ;;
+        dec)  section="Decisions" ;;
+        code) section="Code" ;;
       esac
       shift
       [[ -z "$*" ]] && return
@@ -64,12 +89,12 @@ note() {
 
       if [[ -n "$line" ]]; then
         local next_line=$((line))
-        head -n $next_line "$NOTEPAD" > "${NOTEPAD}.tmp"
-        printf '%s\n' "$entry" >> "${NOTEPAD}.tmp"
-        tail -n +$((next_line + 1)) "$NOTEPAD" >> "${NOTEPAD}.tmp"
-        mv "${NOTEPAD}.tmp" "$NOTEPAD"
+        head -n $next_line "$notepad" > "${notepad}.tmp"
+        printf '%s\n' "$entry" >> "${notepad}.tmp"
+        tail -n +$((next_line + 1)) "$notepad" >> "${notepad}.tmp"
+        mv "${notepad}.tmp" "$notepad"
       else
-        printf '\n## %s\n%s\n' "$section" "$entry" >> "$NOTEPAD"
+        printf '\n## %s\n%s\n' "$section" "$entry" >> "$notepad"
       fi
       ;;
     ls)
@@ -77,33 +102,38 @@ note() {
       ;;
     rm)
       [[ -z "$2" ]] && echo "Usage: note rm <id>" && return 1
-      sed -i '' "/^\- \[${2}\] /d" "$NOTEPAD"
+      grep -v "^\- \[${2}\] " "$notepad" > "${notepad}.tmp" && mv "${notepad}.tmp" "$notepad"
       ;;
     wip)
-      grep "^\- \[" "$NOTEPAD" | grep -v "\[x\]" | head -20
+      grep "^\- \[" "$notepad" | grep -v "\[x\]" | head -20
       ;;
     clear)
-      : > "$NOTEPAD"
+      : > "$notepad"
       _omb_note_init
       ;;
     *)
-      printf '%s\n' "$*" >> "$NOTEPAD"
+      printf '%s\n' "$*" >> "$notepad"
       ;;
   esac
 }
 
 noteopen() {
+  local notepad="$(_omb_note_file)"
   _omb_note_init
-  ${EDITOR:-nano} "$NOTEPAD"
+  ${EDITOR:-nano} "$notepad"
 }
 
 notes() {
+  local notepad="$(_omb_note_file)"
   _omb_note_init
-  [[ -s "$NOTEPAD" ]] && cat "$NOTEPAD" || echo "Notepad is empty."
+  [[ -s "$notepad" ]] && cat "$notepad" || echo "No notes in this directory."
 }
 
 noteclear() {
-  : > "$NOTEPAD"
+  local notepad="$(_omb_note_file)"
+  : > "$notepad"
   _omb_note_init
-  echo "Notepad cleared."
+  echo "Notes cleared."
 }
+
+alias notepad=notes

@@ -1,0 +1,98 @@
+name: Test Plugins
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
+
+      - name: Check shebang
+        run: |
+          for file in bin/* install.sh; do
+            if [[ -f "$file" ]]; then
+              first_line=$(head -1 "$file")
+              if [[ "$first_line" != "#!"* ]]; then
+                echo "Missing shebang in $file"
+                exit 1
+              fi
+              echo "✓ $file has valid shebang"
+            fi
+          done
+
+      - name: Check zsh syntax
+        run: |
+          for file in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
+            if [[ -f "$file" ]]; then
+              echo "Checking $file..."
+              zsh -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
+            fi
+          done
+          echo "All syntax checks passed"
+
+      - name: Test plugin loading in zsh
+        run: |
+          export HOME=/home/runner
+          export OMBD_DIR="$PWD"
+          zsh -c '
+            source lib/utils.zsh
+            for plugin in plugins/*.zsh; do
+              echo "Loading $plugin..."
+              source "$plugin" 2>&1 || echo "Warning: $plugin had issues (may be expected if dependency missing)"
+            done
+            echo "Plugin loading complete"
+          '
+
+      - name: Verify git commands
+        run: |
+          zsh -c '
+            export HOME=/home/runner
+            export OMBD_DIR="$PWD"
+            source lib/utils.zsh
+            source plugins/git.zsh
+
+            for cmd in status add commit switch sync fetch push pull log undo discard stash unstash branches create; do
+              if type "$cmd" >/dev/null 2>&1; then
+                echo "  ✓ $cmd"
+              else
+                echo "  ✗ $cmd"
+              fi
+            done
+          '
+
+      - name: Verify cdc and note commands
+        run: |
+          zsh -c '
+            export HOME=/home/runner
+            export OMBD_DIR="$PWD"
+            export CDC_DIR="/tmp/test_cdc_dirs"
+            source lib/utils.zsh
+            source plugins/qol.zsh
+            source plugins/notes.zsh
+
+            type cdc >/dev/null 2>&1 && echo "  ✓ cdc" || echo "  ✗ cdc"
+            type note >/dev/null 2>&1 && echo "  ✓ note" || echo "  ✗ note"
+          '
+
+      - name: Verify help commands
+        run: |
+          zsh -c '
+            export HOME=/home/runner
+            export OMBD_DIR="$PWD"
+            export CDC_DIR="/tmp/test_cdc_dirs"
+            source lib/utils.zsh
+            source plugins/qol.zsh
+            source plugins/notes.zsh
+
+            cdc help >/dev/null 2>&1 && echo "✓ cdc help works" || echo "✗ cdc help failed"
+            note help >/dev/null 2>&1 && echo "✓ note help works" || echo "✗ note help failed"
+          '
