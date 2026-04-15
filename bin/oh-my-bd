@@ -1,0 +1,161 @@
+#!/usr/bin/env zsh
+# vim: set filetype=zsh:
+# ============================================================
+# oh-my-bd — CLI entry point
+# ============================================================
+
+set -e
+
+export OMBD_DIR="${OMBD_DIR:-$HOME/Documents/Github/oh-my-bd}"
+export OMB_BIN="${OMBD_DIR}/bin/oh-my-bd"
+
+omb_color() {
+  local color="$1"; shift
+  case "$color" in
+    red)    echo "\033[0;31m$*\033[0m" ;;
+    green)  echo "\033[0;32m$*\033[0m" ;;
+    yellow) echo "\033[0;33m$*\033[0m" ;;
+    blue)   echo "\033[0;34m$*\033[0m" ;;
+    bold)   echo "\033[1m$*\033[0m" ;;
+    *)      echo "$*" ;;
+  esac
+}
+
+omb_log() {
+  local level="$1"; shift
+  echo "[oh-my-bd] $(omb_color green INFO)  $*"
+}
+
+omb_err() {
+  echo "[oh-my-bd] $(omb_color red ERROR)  $*" >&2
+}
+
+cmd_install() {
+  omb_log "Installing oh-my-bd..."
+
+  # Backup existing .zshrc
+  if [[ -f "$HOME/.zshrc" ]]; then
+    cp "$HOME/.zshrc" "$HOME/.zshrc.bak.$(date +%Y%m%d%H%M%S)"
+    omb_log "Backed up existing .zshrc"
+  fi
+
+  # Write minimal .zshrc
+  cat > "$HOME/.zshrc" << 'EOF'
+# ============================================================
+# oh-my-bd — managed by oh-my-bd
+# Do not edit this block — changes will be overwritten
+# ============================================================
+export OMBD_DIR="$HOME/Documents/Github/oh-my-bd"
+source "$OMBD_DIR/lib/core.zsh"
+# ============================================================
+# Your custom additions below:
+# ============================================================
+
+EOF
+  omb_log "Wrote .zshrc"
+
+  # Symlink bin
+  mkdir -p "$HOME/.local/bin"
+  ln -sf "$OMBD_DIR/bin/oh-my-bd" "$HOME/.local/bin/oh-my-bd"
+  omb_log "Installed CLI to ~/.local/bin/oh-my-bd"
+
+  omb_log "Done! Run: exec zsh"
+}
+
+cmd_update() {
+  omb_log "Updating oh-my-bd..."
+  local current remote
+  current="$(cd "$OMBD_DIR" && git rev-parse HEAD 2>/dev/null)"
+  (cd "$OMBD_DIR" && git pull --ff-only origin master 2>/dev/null) || \
+    (cd "$OMBD_DIR" && git pull --ff-only origin main 2>/dev/null) || {
+      omb_err "Update failed. Check git remotes."
+      return 1
+    }
+  remote="$(cd "$OMBD_DIR" && git rev-parse HEAD)"
+  if [[ "$current" == "$remote" ]]; then
+    omb_log "Already up to date."
+  else
+    omb_log "Updated from $(echo $current | cut -c1-7) to $(echo $remote | cut -c1-7)"
+  fi
+}
+
+cmd_push() {
+  local msg="${*:-update}"
+  omb_log "Committing and pushing..."
+  (cd "$OMBD_DIR" && git add -A && git commit -m "$msg" && git push) || {
+    omb_err "Push failed. Check git status."
+    return 1
+  }
+  omb_log "Done."
+}
+
+cmd_add() {
+  local name="$1" type="${2:-zsh}"
+  [[ -z "$name" ]] && { omb_err "Usage: oh-my-bd add <plugin-name> [type]"; return 1; }
+  local path="${OMBD_DIR}/plugins/${name}.${type}"
+  if [[ -f "$path" ]]; then
+    omb_err "Plugin already exists: $name"
+    return 1
+  fi
+  cat > "$path" << EOF
+# ============================================================
+# oh-my-bd — ${name}.${type} — created $(date '+%Y-%m-%d')
+# ============================================================
+
+EOF
+  omb_log "Created plugin: plugins/${name}.${type}"
+}
+
+cmd_remove() {
+  local name="$1"
+  [[ -z "$name" ]] && { omb_err "Usage: oh-my-bd remove <plugin-name>"; return 1; }
+  local path="${OMBD_DIR}/plugins/${name}.zsh"
+  [[ ! -f "$path" ]] && { omb_err "Plugin not found: $name"; return 1; }
+  rm "$path"
+  omb_log "Removed plugin: $name"
+}
+
+cmd_list() {
+  echo "$(omb_color bold Plugins)"
+  for f in "${OMBD_DIR}"/plugins/*.zsh(N); do
+    local name="${f:t:r}"
+    echo "  - $name"
+  done
+}
+
+cmd_help() {
+  cat << 'EOF'
+$(omb_color bold oh-my-bd — your personal shell toolkit)
+
+Usage: oh-my-bd <command>
+
+Commands:
+  install     Install oh-my-bd (sets up .zshrc, symlinks)
+  update      Pull latest changes from git
+  push [msg]  Commit all changes and push to git
+  add <name>  Create a new plugin scaffold
+  remove <n>  Remove a plugin
+  list        List installed plugins
+  help        Show this help
+
+Examples:
+  oh-my-bd install      # First time setup
+  oh-my-bd update      # Pull latest from git
+  oh-my-bd push        # Commit and push your changes
+  oh-my-bd push "add kubectl shortcuts"
+  oh-my-bd add k8s     # Create plugins/k8s.zsh
+EOF
+}
+
+# --- Dispatch ---
+CMD="${1:-help}"
+case "$CMD" in
+  install) shift; cmd_install "$@" ;;
+  update)  shift; cmd_update "$@" ;;
+  push)    shift; cmd_push "$@" ;;
+  add)     shift; cmd_add "$@" ;;
+  remove)  shift; cmd_remove "$@" ;;
+  list)    shift; cmd_list "$@" ;;
+  help|--help|-h) cmd_help ;;
+  *)       omb_err "Unknown command: $CMD"; echo "Run 'oh-my-bd help' for usage."; return 1 ;;
+esac
