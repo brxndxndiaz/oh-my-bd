@@ -65,7 +65,7 @@ pull() {
 
 # --- LOG ---
 log() {
-  git log --oneline --graph --decorate --all
+  command git log --oneline --graph --decorate --all
 }
 
 # --- UNDO ---
@@ -73,8 +73,8 @@ undo() {
   git reset --soft HEAD~1
 }
 
-# --- WIPE ---
-wipe() {
+# --- DISCARD ---
+discard() {
   git reset --hard HEAD
 }
 

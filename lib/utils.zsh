@@ -28,6 +28,10 @@ ombd_log() {
   esac
 }
 
+ombd_color() {
+  _ombd_color "$@"
+}
+
 ombd_require() {
   local cmd="$1"
   if ! command -v "$cmd" &>/dev/null; then
