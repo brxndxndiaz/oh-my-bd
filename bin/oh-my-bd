@@ -343,7 +343,6 @@ cmd_help() {
   omb "${DIM}EXAMPLES${RESET}"
   omb "  ${CYAN}omb list${RESET}          List all plugins"
   omb "  ${CYAN}omb list git${RESET}      Show git plugin help"
-  omb "  ${CYAN}omb list compose${RESET} Show compose plugin help"
   omb "  ${CYAN}omb update${RESET}        Pull latest changes"
   omb ""
 }

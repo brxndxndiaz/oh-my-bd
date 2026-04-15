@@ -17,6 +17,7 @@ Your personal shell toolkit — wordplay on *oh-my-zsh*, *"oh my bad"*, and *Bra
 A zero-config toolkit for developers. Git shortcuts, Docker helpers, project bookmarks, notes, and general QoL commands — all in one.
 
 - **Zero-config** — runs with sane defaults
+- **Cross-shell** — bash, zsh, fish, dash
 - **Cross-platform** — macOS and Linux
 - **Plugin-based** — only loads what's available
 - **AI-friendly** — project-local notes for context
@@ -58,6 +59,8 @@ Restart your shell when done.
 | `context ls` | List contexts |
 | `context use <name>` | Switch context |
 | `context` | Show current |
+| `dps` | Show running containers |
+| `dpsa` | Show all containers |
 | `clean-containers` | Remove stopped containers |
 | `clean-images` | Remove dangling images |
 | `clean-all` | Remove containers + images |
@@ -133,21 +136,43 @@ Project-local notes at `./notes.md`.
 
 | Tool | Required |
 |------|---------|
-| zsh | Yes |
 | git | Yes |
+| zsh, bash, fish, or dash | Yes |
 | fzf | Optional |
 | docker | Optional |
 | lazydocker | Optional |
+
+## Autoenv
+
+Automatically loads `.env` files when you `cd` into a directory:
+
+```bash
+# .env in project root
+DATABASE_URL=postgres://localhost:5432
+API_KEY=secret
+
+cd ~/project  # .env auto-loaded
+echo $DATABASE_URL  # postgres://localhost:5432
+```
 
 ---
 
 ## CLI
 
+Use `omb` (short for oh-my-bd) or `oh-my-bd`:
+
+```bash
+omb list              # List plugins
+omb list git         # Show git plugin help
+omb update           # Pull latest changes
+omb help            # Show help
+```
+
 | Command | Description |
 |---------|-------------|
-| `oh-my-bd install` | Run installer |
-| `oh-my-bd update` | Pull latest changes |
-| `oh-my-bd uninstall` | Remove oh-my-bd |
+| `omb install` | Run installer |
+| `omb update` | Pull latest changes |
+| `omb uninstall` | Remove oh-my-bd |
 
 ---
 

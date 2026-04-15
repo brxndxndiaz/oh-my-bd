@@ -148,6 +148,20 @@ chmod +x "${OMBD_DIR}/bin/oh-my-bd"
 echo -e "  ${GREEN}✓${RESET} CLI → ~/.local/bin/oh-my-bd"
 echo -e "  ${GREEN}✓${RESET} Alias → ~/.local/bin/omb"
 
+# Fish shell integration
+if has_cmd fish; then
+  echo -e "  ${GREEN}✓${RESET} Fish shell detected"
+  if grep -q "oh-my-bd.fish" "${HOME}/.config/fish/config.fish" 2>/dev/null; then
+    echo -e "  ${YELLOW}−${RESET} Fish config already set up"
+  else
+    mkdir -p "${HOME}/.config/fish"
+    echo "" >> "${HOME}/.config/fish/config.fish"
+    echo "# oh-my-bd Fish integration" >> "${HOME}/.config/fish/config.fish"
+    echo "source ${OMBD_DIR}/oh-my-bd.fish" >> "${HOME}/.config/fish/config.fish"
+    echo -e "  ${GREEN}✓${RESET} Fish config → ~/.config/fish/config.fish"
+  fi
+fi
+
 echo ""
 echo -e "${BOLD}Done!${RESET} Run ${GREEN}exec zsh${RESET} to reload."
 echo ""

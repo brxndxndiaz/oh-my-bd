@@ -158,12 +158,3 @@ command -v tree >/dev/null 2>&1 && alias tre='tree -a --dirsfirst -I ".git|node_
 if command -v thefuck >/dev/null 2>&1; then
   eval "$(thefuck --alias ...)"
 fi
-
-# --- AUTO-SOURCE .env ON CD ---
-_auto_env_chpwd() {
-  [[ -f .env ]] && set -a && source .env && set +a
-}
-
-autoload -Uz add-zsh-hook
-add-zsh-hook chpwd _auto_env_chpwd
-_auto_env_chpwd

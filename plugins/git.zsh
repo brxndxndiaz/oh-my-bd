@@ -102,3 +102,38 @@ unstash() {
   local idx="${1:-0}"
   git stash pop "stash@{$idx}"
 }
+
+# --- TAGS ---
+tags() {
+  git tag -n --sort=-version:refname | while read -r tag msg; do
+    printf "  ${CYAN}%s${RESET}  ${DIM}%s${RESET}\n" "$tag" "$msg"
+  done
+}
+
+tag() {
+  local name="${1:-}"
+  if [[ -z "$name" ]]; then
+    echo "Usage: tag <name>"
+    return 1
+  fi
+  git tag -a "$name" -m "Tag: $name"
+  printf "${GREEN}Created tag:${RESET} %s\n" "$name"
+  printf "Push with: ${CYAN}git push origin %s${RESET}\n" "$name"
+}
+
+release() {
+  local bump="${1:-patch}"
+  if [[ "$bump" != "patch" && "$bump" != "minor" && "$bump" != "major" ]]; then
+    echo "Usage: release [patch|minor|major]"
+    return 1
+  fi
+
+  printf "${YELLOW}Running release...${RESET}\n"
+  if "${OMBD_DIR}/release.sh" "$bump" 2>/dev/null; then
+    printf "${GREEN}Release ready!${RESET}\n\n"
+    printf "Push with: ${CYAN}git push origin v* --follow-tags${RESET}\n"
+  else
+    printf "${RED}Release failed. Check release.sh exists.${RESET}\n"
+    return 1
+  fi
+}

@@ -17,6 +17,7 @@ _ombd_color() {
 }
 
 ombd_log() {
+  [[ "${OMBD_SILENT:-0}" == "1" ]] && [[ "$1" != "error" ]] && return
   local level="$1"
   shift
   local msg="$*"

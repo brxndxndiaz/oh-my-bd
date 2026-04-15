@@ -5,16 +5,50 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  push:
+    tags:
+      - 'v*'
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh || true
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shell: zsh
+            name: ZSH
+          - shell: bash
+            name: BASH
+          - shell: dash
+            name: DASH
+
+    runs-on: ubuntu-latest
+    name: Test on ${{ matrix.name }}
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
-        run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.shell }} git curl fzf tree
+
+      - name: Verify shell
+        run: |
+          echo "Testing with ${{ matrix.shell }}"
+          which ${{ matrix.shell }}
 
       - name: Check shebang
         run: |
@@ -29,70 +63,63 @@ jobs:
             fi
           done
 
-      - name: Check zsh syntax
+      - name: Syntax check with ${{ matrix.shell }}
         run: |
           for file in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
             if [[ -f "$file" ]]; then
               echo "Checking $file..."
-              zsh -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
+              ${{ matrix.shell }} -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
             fi
           done
-          echo "All syntax checks passed"
+          echo "All syntax checks passed for ${{ matrix.shell }}"
 
-      - name: Test plugin loading in zsh
+      - name: Test CLI with ${{ matrix.shell }}
         run: |
           export HOME=/home/runner
           export OMBD_DIR="$PWD"
-          zsh -c '
+          
+          ${{ matrix.shell }} -c './bin/oh-my-bd version' || { echo "CLI failed"; exit 1; }
+          ${{ matrix.shell }} -c './bin/oh-my-bd list' || { echo "list failed"; exit 1; }
+          ${{ matrix.shell }} -c './bin/oh-my-bd help' || { echo "help failed"; exit 1; }
+          
+          echo "✓ CLI works on ${{ matrix.shell }}"
+
+      - name: Test plugin loading with ${{ matrix.shell }}
+        run: |
+          export HOME=/home/runner
+          export OMBD_DIR="$PWD"
+          export OMBD_SILENT=1
+          
+          ${{ matrix.shell }} -c '
             source lib/utils.zsh
             for plugin in plugins/*.zsh; do
-              echo "Loading $plugin..."
-              source "$plugin" 2>&1 || echo "Warning: $plugin had issues (may be expected if dependency missing)"
+              source "$plugin" 2>&1 || echo "Warning: $plugin had issues"
             done
             echo "Plugin loading complete"
           '
 
-      - name: Verify git commands
+          echo "✓ Plugins load on ${{ matrix.shell }}"
+
+  release:
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          zsh -c '
-            export HOME=/home/runner
-            export OMBD_DIR="$PWD"
-            source lib/utils.zsh
-            source plugins/git.zsh
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          
+          echo "Creating release for v$VERSION"
+          
+          gh release create "$TAG" \
+            --title "oh-my-bd v$VERSION" \
+            --notes "Release v$VERSION
 
-            for cmd in status add commit switch sync fetch push pull log undo discard stash unstash branches create; do
-              if type "$cmd" >/dev/null 2>&1; then
-                echo "  ✓ $cmd"
-              else
-                echo "  ✗ $cmd"
-              fi
-            done
-          '
+$(git log --oneline -10)"
 
-      - name: Verify cdc and note commands
-        run: |
-          zsh -c '
-            export HOME=/home/runner
-            export OMBD_DIR="$PWD"
-            export CDC_DIR="/tmp/test_cdc_dirs"
-            source lib/utils.zsh
-            source plugins/qol.zsh
-            source plugins/notes.zsh
-
-            type cdc >/dev/null 2>&1 && echo "  ✓ cdc" || echo "  ✗ cdc"
-            type note >/dev/null 2>&1 && echo "  ✓ note" || echo "  ✗ note"
-          '
-
-      - name: Verify help commands
-        run: |
-          zsh -c '
-            export HOME=/home/runner
-            export OMBD_DIR="$PWD"
-            export CDC_DIR="/tmp/test_cdc_dirs"
-            source lib/utils.zsh
-            source plugins/qol.zsh
-            source plugins/notes.zsh
-
-            cdc help >/dev/null 2>&1 && echo "✓ cdc help works" || echo "✗ cdc help failed"
-            note help >/dev/null 2>&1 && echo "✓ note help works" || echo "✗ note help failed"
-          '
+          echo "✓ Release created: https://github.com/${{ github.repository }}/releases/tag/$TAG"

@@ -5,6 +5,9 @@
 export OMBD_DIR="${OMBD_DIR:-$HOME/.oh-my-bd}"
 export OMBD_VERSION="1.0.0"
 
+# Suppress logs during shell init (avoids p10k warnings)
+export OMBD_SILENT="${OMBD_SILENT:-1}"
+
 if [[ ! -d "$OMBD_DIR" ]]; then
   echo "[oh-my-bd] ERROR: OMBD_DIR not found at $OMBD_DIR" >&2
   echo "[oh-my-bd] Run: oh-my-bd install" >&2
@@ -19,7 +22,7 @@ ombd_log "debug" "oh-my-bd v${OMBD_VERSION} loading from $OMBD_DIR"
 # Load plugins
 # ============================================================
 
-local -a plugins=(git docker notes qol fzf compose system)
+local -a plugins=(git docker notes qol fzf compose system autoenv)
 for plugin in $plugins; do
   local plugin_file="${OMBD_DIR}/plugins/${plugin}.zsh"
   if [[ -f "$plugin_file" ]]; then

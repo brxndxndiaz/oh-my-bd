@@ -44,4 +44,8 @@ alias clean-containers='command docker container prune -f'
 alias clean-images='command docker image prune -f'
 alias clean-all='command docker system prune -a -f'
 
+# --- DOCKER PS shortcuts ---
+alias dps='command docker ps'
+alias dpsa='command docker ps -a'
+
 command -v lazydocker >/dev/null 2>&1 && alias lz='lazydocker'

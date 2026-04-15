@@ -62,14 +62,27 @@ docker run --rm \
     echo "  ✓ tree installed"
     echo ""
 
-    echo "--- Syntax ---"
-    passed=0
+    echo "--- Syntax (zsh) ---"
+    zsh_passed=0
     for f in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
       if zsh -n "$f" 2>/dev/null; then
         echo "  ✓ $(basename $f)"
-        passed=$((passed + 1))
+        zsh_passed=$((zsh_passed + 1))
       else
         echo "  ✗ $(basename $f)"
+      fi
+    done
+
+    echo ""
+    echo "--- Syntax (bash compat) ---"
+    bash_passed=0
+    for f in lib/compat.sh; do
+      fname=$(basename "$f")
+      if bash -n "$f" 2>/dev/null; then
+        echo "  ✓ $fname"
+        bash_passed=$((bash_passed + 1))
+      else
+        echo "  ✗ $fname"
       fi
     done
 
