@@ -65,7 +65,7 @@ pull() {
 
 # --- LOG ---
 log() {
-  command git log --oneline --graph --decorate --all
+  GIT_PAGER=cat command git log --oneline --graph --decorate --all
 }
 
 # --- UNDO ---
