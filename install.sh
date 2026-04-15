@@ -135,15 +135,18 @@ else
 # ============================================================
 export OMBD_DIR="$HOME/.oh-my-bd"
 [[ -f "$OMBD_DIR/lib/core.zsh" ]] && source "$OMBD_DIR/lib/core.zsh"
+alias omb="oh-my-bd"
 ZSHRC
   echo -e "  ${GREEN}✓${RESET} Added to .zshrc"
 fi
 
 # Symlink CLI
 mkdir -p "${HOME}/.local/bin"
-ln -sf "$OMBD_DIR/bin/oh-my-bd" "${HOME}/.local/bin/oh-my-bd"
-chmod +x "$OMBD_DIR/bin/oh-my-bd"
+ln -sf "${OMBD_DIR}/bin/oh-my-bd" "${HOME}/.local/bin/oh-my-bd"
+ln -sf "${OMBD_DIR}/bin/oh-my-bd" "${HOME}/.local/bin/omb"
+chmod +x "${OMBD_DIR}/bin/oh-my-bd"
 echo -e "  ${GREEN}✓${RESET} CLI → ~/.local/bin/oh-my-bd"
+echo -e "  ${GREEN}✓${RESET} Alias → ~/.local/bin/omb"
 
 echo ""
 echo -e "${BOLD}Done!${RESET} Run ${GREEN}exec zsh${RESET} to reload."
