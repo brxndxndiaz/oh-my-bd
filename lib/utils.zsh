@@ -17,6 +17,7 @@ _ombd_color() {
 }
 
 ombd_log() {
+  [[ "${OMBD_SILENT:-0}" == "1" ]] && [[ "$1" != "error" ]] && return
   local level="$1"
   shift
   local msg="$*"
@@ -26,6 +27,10 @@ ombd_log() {
     info)    echo "[oh-my-bd] $(_ombd_color green INFO)  $msg" ;;
     debug)   [[ "${OMBD_DEBUG:-0}" == "1" ]] && echo "[oh-my-bd] DEBUG $msg" ;;
   esac
+}
+
+ombd_color() {
+  _ombd_color "$@"
 }
 
 ombd_require() {
