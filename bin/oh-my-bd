@@ -15,7 +15,7 @@ BOLD=$'\033[1m'
 DIM=$'\033[2m'
 RESET=$'\033[0m'
 
-omb() { echo -E "$1"; }
+omb() { printf '%b\n' "$1"; }
 
 omb_banner() {
   local b="${BLUE}"
