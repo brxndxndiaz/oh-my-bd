@@ -4,158 +4,363 @@
 # oh-my-bd — CLI entry point
 # ============================================================
 
-set -e
+export OMBD_DIR="${OMBD_DIR:-$HOME/.oh-my-bd}"
 
-export OMBD_DIR="${OMBD_DIR:-$HOME/Documents/Github/oh-my-bd}"
-export OMB_BIN="${OMBD_DIR}/bin/oh-my-bd"
+RED=$'\033[0;31m'
+GREEN=$'\033[0;32m'
+YELLOW=$'\033[0;33m'
+BLUE=$'\033[0;34m'
+CYAN=$'\033[0;36m'
+BOLD=$'\033[1m'
+DIM=$'\033[2m'
+RESET=$'\033[0m'
 
-omb_color() {
-  local color="$1"; shift
-  case "$color" in
-    red)    echo "\033[0;31m$*\033[0m" ;;
-    green)  echo "\033[0;32m$*\033[0m" ;;
-    yellow) echo "\033[0;33m$*\033[0m" ;;
-    blue)   echo "\033[0;34m$*\033[0m" ;;
-    bold)   echo "\033[1m$*\033[0m" ;;
-    *)      echo "$*" ;;
-  esac
-}
+omb() { echo -E "$1"; }
 
-omb_log() {
-  local level="$1"; shift
-  echo "[oh-my-bd] $(omb_color green INFO)  $*"
-}
-
-omb_err() {
-  echo "[oh-my-bd] $(omb_color red ERROR)  $*" >&2
+omb_banner() {
+  local b="${BLUE}"
+  local r="${RESET}"
+  local esc=$'\x1b'
+  echo ""
+  echo "${b}       ______     __  __        __    __     __  __        ______     ___${r}"
+  echo "${b}      /\  __ \   /\ \_\ \      /\ \"-./  \   /\ \_\ \      /\  == \   /\  __-. ${r}"
+  echo "${b}      \ \ \/\ \  \ \  __ \     \ \ \-./\ \  \ \____ \     \ \  __<   \ \ \/\ \ ${r}"
+  echo "${b}       \ \_____\  \ \_\ \_\     \ \_\ \ \_\  \/\_____\     \ \_____\  \ \____- ${r}"
+  echo "${b}        \/_____/   \/_/\/_/      \/_/  \/_/   \/_____/      \/_____/   \/____/ ${r}"
+  echo ""
 }
 
 cmd_install() {
-  omb_log "Installing oh-my-bd..."
-
-  # Backup existing .zshrc
-  if [[ -f "$HOME/.zshrc" ]]; then
-    cp "$HOME/.zshrc" "$HOME/.zshrc.bak.$(date +%Y%m%d%H%M%S)"
-    omb_log "Backed up existing .zshrc"
+  omb "${GREEN}Running install.sh...${RESET}"
+  if [[ -x "${OMBD_DIR}/install.sh" ]]; then
+    "${OMBD_DIR}/install.sh"
+  else
+    omb "${RED}[ERROR]${RESET} install.sh not found or not executable."
+    return 1
   fi
-
-  # Write minimal .zshrc
-  cat > "$HOME/.zshrc" << 'EOF'
-# ============================================================
-# oh-my-bd — managed by oh-my-bd
-# Do not edit this block — changes will be overwritten
-# ============================================================
-export OMBD_DIR="$HOME/Documents/Github/oh-my-bd"
-source "$OMBD_DIR/lib/core.zsh"
-# ============================================================
-# Your custom additions below:
-# ============================================================
-
-EOF
-  omb_log "Wrote .zshrc"
-
-  # Symlink bin
-  mkdir -p "$HOME/.local/bin"
-  ln -sf "$OMBD_DIR/bin/oh-my-bd" "$HOME/.local/bin/oh-my-bd"
-  omb_log "Installed CLI to ~/.local/bin/oh-my-bd"
-
-  omb_log "Done! Run: exec zsh"
 }
 
 cmd_update() {
-  omb_log "Updating oh-my-bd..."
+  if [[ ! -d "$OMBD_DIR/.git" ]]; then
+    omb "${RED}[ERROR]${RESET} Not a git repo. Run 'oh-my-bd install' first."
+    return 1
+  fi
+
   local current remote
   current="$(cd "$OMBD_DIR" && git rev-parse HEAD 2>/dev/null)"
-  (cd "$OMBD_DIR" && git pull --ff-only origin master 2>/dev/null) || \
-    (cd "$OMBD_DIR" && git pull --ff-only origin main 2>/dev/null) || {
-      omb_err "Update failed. Check git remotes."
-      return 1
-    }
+
+  (cd "$OMBD_DIR" && git fetch origin main --quiet 2>/dev/null) || {
+    omb "${RED}[ERROR]${RESET} Update failed. Check: cd $OMBD_DIR && git status"
+    return 1
+  }
+
+  (cd "$OMBD_DIR" && git reset --hard "origin/main" --quiet 2>/dev/null) || {
+    omb "${RED}[ERROR]${RESET} Update failed. Check: cd $OMBD_DIR && git status"
+    return 1
+  }
+
   remote="$(cd "$OMBD_DIR" && git rev-parse HEAD)"
   if [[ "$current" == "$remote" ]]; then
-    omb_log "Already up to date."
+    omb "${YELLOW}Already up to date.${RESET}"
   else
-    omb_log "Updated from $(echo $current | cut -c1-7) to $(echo $remote | cut -c1-7)"
+    omb "${GREEN}Updated.${RESET} Run ${CYAN}exec zsh${RESET} to reload."
   fi
 }
 
-cmd_push() {
-  local msg="${*:-update}"
-  omb_log "Committing and pushing..."
-  (cd "$OMBD_DIR" && git add -A && git commit -m "$msg" && git push) || {
-    omb_err "Push failed. Check git status."
-    return 1
-  }
-  omb_log "Done."
-}
-
 cmd_add() {
-  local name="$1" type="${2:-zsh}"
-  [[ -z "$name" ]] && { omb_err "Usage: oh-my-bd add <plugin-name> [type]"; return 1; }
-  local path="${OMBD_DIR}/plugins/${name}.${type}"
+  local name="${1:?Usage: oh-my-bd add <plugin-name>}"
+  local path="${OMBD_DIR}/plugins/${name}.zsh"
   if [[ -f "$path" ]]; then
-    omb_err "Plugin already exists: $name"
+    omb "${RED}[ERROR]${RESET} Plugin already exists: $name"
     return 1
   fi
   cat > "$path" << EOF
 # ============================================================
-# oh-my-bd — ${name}.${type} — created $(date '+%Y-%m-%d')
+# oh-my-bd — ${name}.zsh — $(date '+%Y-%m-%d')
 # ============================================================
 
 EOF
-  omb_log "Created plugin: plugins/${name}.${type}"
+  omb "${GREEN}Created:${RESET} plugins/${name}.zsh"
+  omb "${GREEN}Edit:${RESET} $path"
 }
 
 cmd_remove() {
-  local name="$1"
-  [[ -z "$name" ]] && { omb_err "Usage: oh-my-bd remove <plugin-name>"; return 1; }
+  local name="${1:?Usage: oh-my-bd remove <plugin-name>}"
   local path="${OMBD_DIR}/plugins/${name}.zsh"
-  [[ ! -f "$path" ]] && { omb_err "Plugin not found: $name"; return 1; }
+  if [[ ! -f "$path" ]]; then
+    omb "${RED}[ERROR]${RESET} Plugin not found: $name"
+    return 1
+  fi
   rm "$path"
-  omb_log "Removed plugin: $name"
+  omb "${GREEN}Removed:${RESET} $name"
+}
+
+show_help_compose() {
+  omb ""
+  omb "${BOLD}${CYAN}COMPOSE${RESET}"
+  omb "  ${DIM}Docker Compose shortcuts${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}dcup${RESET}      Start services (docker compose up -d)"
+  omb "  ${GREEN}dcupd${RESET}     Same as dcup"
+  omb "  ${GREEN}dcdown${RESET}    Stop services (docker compose down)"
+  omb "  ${GREEN}dcstop${RESET}    Stop services without removing volumes"
+  omb "  ${GREEN}dcstart${RESET}   Start existing services"
+  omb "  ${GREEN}dclogs${RESET}    View logs (docker compose logs -f)"
+  omb "  ${GREEN}dclogsf${RESET}   View logs for a specific service"
+  omb "  ${GREEN}dcexec${RESET}    Run command in running container"
+  omb "  ${GREEN}dcps${RESET}      Show running containers"
+  omb ""
+}
+
+show_help_docker() {
+  omb ""
+  omb "${BOLD}${CYAN}DOCKER${RESET}"
+  omb "  ${DIM}Docker context & cleanup helpers${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}ctx${RESET}           Show current docker context"
+  omb "  ${GREEN}ctx ls${RESET}        List all docker contexts"
+  omb "  ${GREEN}ctx <name>${RESET}    Switch to context <name>"
+  omb "  ${GREEN}clean-containers${RESET}   Remove stopped containers"
+  omb "  ${GREEN}clean-images${RESET}       Remove dangling images"
+  omb "  ${GREEN}clean-all${RESET}          Remove containers, images, and volumes"
+  omb ""
+}
+
+show_help_git() {
+  omb ""
+  omb "${BOLD}${CYAN}GIT${RESET}"
+  omb "  ${DIM}Git shortcuts for faster workflow${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}status${RESET}    git status -sb"
+  omb "  ${GREEN}add${RESET}      git add"
+  omb "  ${GREEN}commit${RESET}    git commit (opens editor)"
+  omb "  ${GREEN}switch${RESET}    git checkout"
+  omb "  ${GREEN}create${RESET}    git checkout -b (new branch)"
+  omb "  ${GREEN}sync${RESET}      git pull --rebase && git push"
+  omb "  ${GREEN}fetch${RESET}     git fetch --all"
+  omb "  ${GREEN}push${RESET}      git push"
+  omb "  ${GREEN}pull${RESET}      git pull --rebase"
+  omb "  ${GREEN}log${RESET}       git log --oneline --graph"
+  omb "  ${GREEN}undo${RESET}      git reset --soft HEAD~1"
+  omb "  ${GREEN}discard${RESET}    git reset --hard HEAD"
+  omb "  ${GREEN}stash${RESET}     git stash"
+  omb "  ${GREEN}unstash${RESET}    git stash pop"
+  omb "  ${GREEN}branches${RESET}   git branch -a"
+  omb "  ${GREEN}tag${RESET}       Create git tag"
+  omb "  ${GREEN}tags${RESET}      List git tags"
+  omb "  ${GREEN}release${RESET}    Create release (patch|minor|major)"
+  omb ""
+}
+
+show_help_notes() {
+  omb ""
+  omb "${BOLD}${CYAN}NOTES${RESET}"
+  omb "  ${DIM}Project-local notes (stored in ./notes.md)${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}note${RESET}         Open notes.md in editor"
+  omb "  ${GREEN}note open${RESET}    Same as above"
+  omb "  ${GREEN}notes${RESET}        Cat notes.md"
+  omb "  ${GREEN}note <word>${RESET}  Append with timestamp tag"
+  omb "  ${GREEN}note wip${RESET}     Mark current task as WIP"
+  omb "  ${GREEN}note rm${RESET}      Remove last line"
+  omb "  ${GREEN}note clear${RESET}   Clear all notes"
+  omb "  ${GREEN}note task${RESET}    Add a task"
+  omb "  ${GREEN}note ctx${RESET}     Add context note"
+  omb "  ${GREEN}note bug${RESET}     Log a bug"
+  omb "  ${GREEN}note idea${RESET}    Record an idea"
+  omb "  ${GREEN}note code${RESET}    Save code snippet"
+  omb ""
+}
+
+show_help_qol() {
+  omb ""
+  omb "${BOLD}${CYAN}QOL${RESET}"
+  omb "  ${DIM}Quality of life shortcuts${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}cdc add <name> <path>${RESET}   Add directory bookmark"
+  omb "  ${GREEN}cdc <name>${RESET}              Jump to bookmarked directory"
+  omb "  ${GREEN}cdc rm <name>${RESET}           Remove bookmark"
+  omb "  ${GREEN}cdc${RESET}                     List all bookmarks"
+  omb "  ${GREEN}kill-port <port>${RESET}        Kill process on port"
+  omb "  ${GREEN}gopen${RESET}                   Open GitHub repo in browser"
+  omb "  ${GREEN}tre${RESET}                     Tree view with hidden files"
+  omb ""
+}
+
+show_help_system() {
+  omb ""
+  omb "${BOLD}${CYAN}SYSTEM${RESET}"
+  omb "  ${DIM}Cross-platform system utilities${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}ll${RESET}      ls -la (list all files)"
+  omb "  ${GREEN}la${RESET}      ls -A (list except . and ..)"
+  omb "  ${GREEN}l${RESET}       ls -CF"
+  omb "  ${GREEN}psg${RESET}     ps aux | grep (process search)"
+  omb "  ${GREEN}myip${RESET}    Show external IP"
+  omb "  ${GREEN}copy${RESET}    Copy to clipboard (pbcopy)"
+  omb "  ${GREEN}paste${RESET}   Paste from clipboard (pbpaste)"
+  omb ""
+}
+
+show_help_fzf() {
+  omb ""
+  omb "${BOLD}${CYAN}FZF${RESET}"
+  omb "  ${DIM}Fuzzy finder integration${RESET}"
+  omb ""
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${GREEN}Ctrl+R${RESET}   Search command history"
+  omb "  ${GREEN}Ctrl+F${RESET}   Search files in current dir"
+  omb "  ${GREEN}Alt+C${RESET}    Change directory (fuzzy)"
+  omb "  ${GREEN}vf${RESET}       Open file with fzf"
+  omb "  ${GREEN}fcd${RESET}      Fuzzy change directory"
+  omb ""
 }
 
 cmd_list() {
-  echo "$(omb_color bold Plugins)"
-  for f in "${OMBD_DIR}"/plugins/*.zsh(N); do
-    local name="${f:t:r}"
-    echo "  - $name"
-  done
+  if [[ -n "$1" ]]; then
+    case "$1" in
+      compose)  show_help_compose ;;
+      docker)   show_help_docker ;;
+      git)      show_help_git ;;
+      notes)    show_help_notes ;;
+      qol)      show_help_qol ;;
+      system)   show_help_system ;;
+      fzf)      show_help_fzf ;;
+      *)
+        omb "${RED}Unknown plugin:${RESET} $1"
+        omb "Run ${CYAN}omb list${RESET} to see all plugins."
+        return 1
+        ;;
+    esac
+    return
+  fi
+
+  omb_banner
+  omb "${BOLD}${GREEN}plugins${RESET}"
+  omb ""
+
+  omb "  ${CYAN}compose${RESET}   Docker Compose shortcuts"
+  omb "            ${DIM}-> dcup  dcupd  dcdown  dcstop  dcstart  dclogs  dcexec  dcps${RESET}"
+  omb ""
+
+  omb "  ${CYAN}docker${RESET}    Docker context & cleanup"
+  omb "            ${DIM}-> ctx  ctx ls  ctx use <name>  clean-containers  clean-images  clean-all${RESET}"
+  omb ""
+
+  omb "  ${CYAN}fzf${RESET}       Fuzzy finder integration"
+  omb "            ${DIM}-> Ctrl+R  Ctrl+F  Alt+C  vf  fcd${RESET}"
+  omb ""
+
+  omb "  ${CYAN}git${RESET}       Git shortcuts"
+  omb "            ${DIM}-> status  add  commit  switch  create  sync  fetch  push  pull  log${RESET}"
+  omb ""
+
+  omb "  ${CYAN}notes${RESET}     Project-local notes"
+  omb "            ${DIM}-> note  notes  note wip  note rm  noteopen${RESET}"
+  omb "            ${DIM}-> note task/ctx/bug/idea/code${RESET}"
+  omb ""
+
+  omb "  ${CYAN}qol${RESET}       Quality of life"
+  omb "            ${DIM}-> cdc  kill-port  gopen  tre  tf${RESET}"
+  omb ""
+
+  omb "  ${CYAN}system${RESET}    System utilities"
+  omb "            ${DIM}-> ll  la  l  psg  myip  copy  paste${RESET}"
+  omb ""
+
+  omb "${DIM}─────────────────────────────────────────${RESET}"
+  omb "${DIM}CLI:${RESET}  install  update  add  remove  list  uninstall  version"
+  omb ""
+  omb "Run ${CYAN}omb list <plugin>${RESET} for detailed help."
+  omb ""
+}
+
+cmd_uninstall() {
+  if [[ ! -d "$OMBD_DIR" ]]; then
+    omb "${RED}[ERROR]${RESET} Not installed."
+    return 1
+  fi
+
+  omb "${YELLOW}WARNING:${RESET} This will remove oh-my-bd completely."
+  read "confirm?Remove oh-my-bd? [y/N] "
+
+  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
+    omb "Cancelled."
+    return
+  fi
+
+  if grep -q "oh-my-bd" "${HOME}/.zshrc" 2>/dev/null; then
+    sed -i '' '/^# ===.*oh-my-bd/,/^fi$/d' "${HOME}/.zshrc"
+    sed -i '' '/^export PATH=".*\.local\/bin/d' "${HOME}/.zshrc"
+    omb "  ${GREEN}[OK]${RESET} Removed from .zshrc"
+  fi
+
+  if [[ -L "${HOME}/.local/bin/oh-my-bd" ]]; then
+    rm -f "${HOME}/.local/bin/oh-my-bd"
+    omb "  ${GREEN}[OK]${RESET} Removed CLI symlink"
+  fi
+
+  if [[ -d "$OMBD_DIR" ]]; then
+    rm -rf "$OMBD_DIR"
+    omb "  ${GREEN}[OK]${RESET} Removed $OMBD_DIR"
+  fi
+
+  omb ""
+  omb "  ${GREEN}Uninstalled.${RESET} Restart your shell."
+  omb ""
+}
+
+cmd_version() {
+  omb "${GREEN}oh-my-bd v1.0.0${RESET}"
 }
 
 cmd_help() {
-  cat << 'EOF'
-$(omb_color bold oh-my-bd — your personal shell toolkit)
+  local plugin="${1:-}"
+  
+  if [[ -n "$plugin" ]]; then
+    cmd_list "$plugin"
+    return
+  fi
 
-Usage: oh-my-bd <command>
-
-Commands:
-  install     Install oh-my-bd (sets up .zshrc, symlinks)
-  update      Pull latest changes from git
-  push [msg]  Commit all changes and push to git
-  add <name>  Create a new plugin scaffold
-  remove <n>  Remove a plugin
-  list        List installed plugins
-  help        Show this help
-
-Examples:
-  oh-my-bd install      # First time setup
-  oh-my-bd update      # Pull latest from git
-  oh-my-bd push        # Commit and push your changes
-  oh-my-bd push "add kubectl shortcuts"
-  oh-my-bd add k8s     # Create plugins/k8s.zsh
-EOF
+  omb_banner
+  omb "${BOLD}USAGE${RESET}"
+  omb "  ${CYAN}omb${RESET} <command> [args]"
+  omb ""
+  omb "${BOLD}CLI COMMANDS${RESET}"
+  omb "  ${GREEN}install${RESET}         Run the installer"
+  omb "  ${GREEN}update${RESET}          Pull latest changes from git"
+  omb "  ${GREEN}add <name>${RESET}      Create a new plugin"
+  omb "  ${GREEN}remove <name>${RESET}   Remove a plugin"
+  omb "  ${GREEN}list [plugin]${RESET}   List plugins (or show plugin help)"
+  omb "  ${GREEN}uninstall${RESET}       Remove oh-my-bd completely"
+  omb "  ${GREEN}version${RESET}         Show version"
+  omb ""
+  omb "${DIM}EXAMPLES${RESET}"
+  omb "  ${CYAN}omb list${RESET}          List all plugins"
+  omb "  ${CYAN}omb list git${RESET}      Show git plugin help"
+  omb "  ${CYAN}omb update${RESET}        Pull latest changes"
+  omb ""
 }
 
-# --- Dispatch ---
-CMD="${1:-help}"
-case "$CMD" in
-  install) shift; cmd_install "$@" ;;
-  update)  shift; cmd_update "$@" ;;
-  push)    shift; cmd_push "$@" ;;
-  add)     shift; cmd_add "$@" ;;
-  remove)  shift; cmd_remove "$@" ;;
-  list)    shift; cmd_list "$@" ;;
-  help|--help|-h) cmd_help ;;
-  *)       omb_err "Unknown command: $CMD"; echo "Run 'oh-my-bd help' for usage."; return 1 ;;
-esac
+CMD="${1:-}"
+if [[ -z "$CMD" || "$CMD" == "help" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
+  cmd_help
+else
+  shift 2>/dev/null
+  case "$CMD" in
+    install)   cmd_install "$@" ;;
+    update)    cmd_update "$@" ;;
+    add)       cmd_add "$@" ;;
+    remove)    cmd_remove "$@" ;;
+    list)      cmd_list "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    version)   cmd_version "$@" ;;
+    *)         omb "${RED}[ERROR]${RESET} Unknown command: $CMD"; omb "Run ${CYAN}omb help${RESET} for usage."; return 1 ;;
+  esac
+fi
