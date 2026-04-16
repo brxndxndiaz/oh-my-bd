@@ -171,10 +171,10 @@ command -v tree >/dev/null 2>&1 && alias tre='tree -a --dirsfirst -I ".git|node_
 
 # --- THEFUCK ---
 if command -v thefuck >/dev/null 2>&1; then
-  eval "$(thefuck --alias ...)"
   tf() {
     if [[ -z "$*" ]]; then
-      fuck
+      thefuck --alias >/dev/null 2>&1 || eval "$(thefuck --alias)"
+      eval "$(thefuck --alias)" && thefuck "$(fc -ln -1)"
     else
       thefuck "$@"
     fi
