@@ -143,11 +143,14 @@ fi
 # --- KILL PORT ---
 kill-port() {
   [[ -z "$1" ]] && echo "Usage: kill-port <port>" && return 1
-  local pid
-  pid="$(lsof -ti :"$1" 2>/dev/null)"
-  if [[ -n "$pid" ]]; then
-    echo "Killing process $pid on port $1"
-    kill -9 "$pid"
+  local pids
+  pids="$(lsof -ti :"$1" 2>/dev/null)"
+  if [[ -n "$pids" ]]; then
+    local pid
+    for pid in $pids; do
+      echo "Killing process $pid on port $1"
+      kill -9 "$pid" 2>/dev/null || true
+    done
   else
     echo "No process found on port $1"
   fi
