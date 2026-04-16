@@ -3,11 +3,10 @@ name: Test Plugins
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
-  push:
     tags:
       - 'v*'
+  pull_request:
+    branches: [main]
 
 jobs:
   lint:
@@ -118,8 +117,6 @@ jobs:
           
           gh release create "$TAG" \
             --title "oh-my-bd v$VERSION" \
-            --notes "Release v$VERSION
+            --generate-release-notes
 
-$(git log --oneline -10)"
-
-          echo "✓ Release created: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          echo "Release created: https://github.com/${{ github.repository }}/releases/tag/$TAG"
