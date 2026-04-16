@@ -2,8 +2,20 @@
 # oh-my-bd — docker.zsh — Docker context + prompt segment
 # ============================================================
 
-# --- CONTEXT helper ---
+command -v docker >/dev/null 2>&1 || return
+
 context() {
+  if [[ "$1" == "help" ]]; then
+    cat << 'EOF'
+context — Docker context manager
+
+Usage:
+  context             Show current context
+  context ls          List all contexts
+  context use <name>  Switch to context
+EOF
+    return
+  fi
   command docker context "$@"
 }
 
@@ -31,4 +43,9 @@ docker() {
 alias clean-containers='command docker container prune -f'
 alias clean-images='command docker image prune -f'
 alias clean-all='command docker system prune -a -f'
-alias lz='lazydocker'
+
+# --- DOCKER PS shortcuts ---
+alias dps='command docker ps'
+alias dpsa='command docker ps -a'
+
+command -v lazydocker >/dev/null 2>&1 && alias lz='lazydocker'
