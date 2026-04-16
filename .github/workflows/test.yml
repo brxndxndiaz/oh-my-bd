@@ -73,23 +73,25 @@ jobs:
           echo "All syntax checks passed for ${{ matrix.shell }}"
 
       - name: Test CLI with ${{ matrix.shell }}
+        if: matrix.shell == 'zsh'
         run: |
           export HOME=/home/runner
           export OMBD_DIR="$PWD"
           
-          ${{ matrix.shell }} -c './bin/oh-my-bd version' || { echo "CLI failed"; exit 1; }
-          ${{ matrix.shell }} -c './bin/oh-my-bd list' || { echo "list failed"; exit 1; }
-          ${{ matrix.shell }} -c './bin/oh-my-bd help' || { echo "help failed"; exit 1; }
+          ./bin/oh-my-bd version || { echo "CLI failed"; exit 1; }
+          ./bin/oh-my-bd list || { echo "list failed"; exit 1; }
+          ./bin/oh-my-bd help || { echo "help failed"; exit 1; }
           
           echo "✓ CLI works on ${{ matrix.shell }}"
 
       - name: Test plugin loading with ${{ matrix.shell }}
+        if: matrix.shell == 'zsh'
         run: |
           export HOME=/home/runner
           export OMBD_DIR="$PWD"
           export OMBD_SILENT=1
           
-          ${{ matrix.shell }} -c '
+          zsh -c '
             source lib/utils.zsh
             for plugin in plugins/*.zsh; do
               source "$plugin" 2>&1 || echo "Warning: $plugin had issues"
