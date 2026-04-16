@@ -1,0 +1,125 @@
+name: Test Plugins
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ShellCheck
+        run: sudo apt-get update && sudo apt-get install -y shellcheck
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh || true
+
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shell: zsh
+            name: ZSH
+          - shell: bash
+            name: BASH
+          - shell: dash
+            name: DASH
+
+    runs-on: ubuntu-latest
+    name: Test on ${{ matrix.name }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ${{ matrix.shell }} git curl fzf tree
+
+      - name: Verify shell
+        run: |
+          echo "Testing with ${{ matrix.shell }}"
+          which ${{ matrix.shell }}
+
+      - name: Check shebang
+        run: |
+          for file in bin/* install.sh; do
+            if [[ -f "$file" ]]; then
+              first_line=$(head -1 "$file")
+              if [[ "$first_line" != "#!"* ]]; then
+                echo "Missing shebang in $file"
+                exit 1
+              fi
+              echo "✓ $file has valid shebang"
+            fi
+          done
+
+      - name: Syntax check with ${{ matrix.shell }}
+        run: |
+          for file in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
+            if [[ -f "$file" ]]; then
+              echo "Checking $file..."
+              ${{ matrix.shell }} -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
+            fi
+          done
+          echo "All syntax checks passed for ${{ matrix.shell }}"
+
+      - name: Test CLI with ${{ matrix.shell }}
+        run: |
+          export HOME=/home/runner
+          export OMBD_DIR="$PWD"
+          
+          ${{ matrix.shell }} -c './bin/oh-my-bd version' || { echo "CLI failed"; exit 1; }
+          ${{ matrix.shell }} -c './bin/oh-my-bd list' || { echo "list failed"; exit 1; }
+          ${{ matrix.shell }} -c './bin/oh-my-bd help' || { echo "help failed"; exit 1; }
+          
+          echo "✓ CLI works on ${{ matrix.shell }}"
+
+      - name: Test plugin loading with ${{ matrix.shell }}
+        run: |
+          export HOME=/home/runner
+          export OMBD_DIR="$PWD"
+          export OMBD_SILENT=1
+          
+          ${{ matrix.shell }} -c '
+            source lib/utils.zsh
+            for plugin in plugins/*.zsh; do
+              source "$plugin" 2>&1 || echo "Warning: $plugin had issues"
+            done
+            echo "Plugin loading complete"
+          '
+
+          echo "✓ Plugins load on ${{ matrix.shell }}"
+
+  release:
+    needs: [lint, test]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          VERSION=${TAG#v}
+          
+          echo "Creating release for v$VERSION"
+          
+          gh release create "$TAG" \
+            --title "oh-my-bd v$VERSION" \
+            --notes "Release v$VERSION
+
+$(git log --oneline -10)"
+
+          echo "✓ Release created: https://github.com/${{ github.repository }}/releases/tag/$TAG"

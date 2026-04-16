@@ -1,0 +1,12 @@
+# Development tools (not installed)
+release.sh
+CHECKLIST.md
+
+# OS files
+.DS_Store
+*.swp
+*.swo
+
+# Editor files
+*.sublime-*
+.vscode/
