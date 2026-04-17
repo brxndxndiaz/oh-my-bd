@@ -128,6 +128,6 @@ docker run --rm \
     " 2>&1 || true
 
     echo ""
-    echo "Syntax checks: $passed/11"
+    echo "Syntax checks: $zsh_passed/12"
     echo "All checks passed!"
   '

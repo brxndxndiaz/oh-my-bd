@@ -62,15 +62,27 @@ jobs:
             fi
           done
 
-      - name: Syntax check with ${{ matrix.shell }}
+      - name: Syntax check with zsh
+        if: matrix.shell == 'zsh'
         run: |
           for file in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
+            if [[ -f "$file" ]]; then
+              echo "Checking $file..."
+              zsh -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
+            fi
+          done
+          echo "All zsh syntax checks passed"
+
+      - name: Syntax check with ${{ matrix.shell }} compat files
+        if: matrix.shell != 'zsh'
+        run: |
+          for file in lib/compat.sh; do
             if [[ -f "$file" ]]; then
               echo "Checking $file..."
               ${{ matrix.shell }} -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
             fi
           done
-          echo "All syntax checks passed for ${{ matrix.shell }}"
+          echo "All ${{ matrix.shell }} compatibility syntax checks passed"
 
       - name: Test CLI with ${{ matrix.shell }}
         if: matrix.shell == 'zsh'
