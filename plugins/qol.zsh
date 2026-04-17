@@ -174,9 +174,9 @@ if command -v thefuck >/dev/null 2>&1; then
   tf() {
     if [[ -z "$*" ]]; then
       thefuck --alias >/dev/null 2>&1 || eval "$(thefuck --alias)"
-      eval "$(thefuck --alias)" && thefuck "$(fc -ln -1)"
+      eval "$(thefuck --alias)" && thefuck -y "$(fc -ln -1)"
     else
-      thefuck "$@"
+      thefuck -y "$@"
     fi
   }
 fi
