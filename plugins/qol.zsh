@@ -172,12 +172,19 @@ command -v tree >/dev/null 2>&1 && alias tre='tree -a --dirsfirst -I ".git|node_
 # --- THEFUCK ---
 if command -v thefuck >/dev/null 2>&1; then
   tf() {
+    local cmd
     if [[ -z "$*" ]]; then
-      eval "$(thefuck --alias)"
-      THEFUCK_REQUIRE_CONFIRMATION=false thefuck "$(fc -ln -1 | sed 's/^[[:space:]]*//')"
+      cmd="$(fc -ln -1 | sed 's/^[[:space:]]*//')"
     else
-      eval "$(thefuck --alias)"
-      THEFUCK_REQUIRE_CONFIRMATION=false thefuck "$@"
+      cmd="$*"
+    fi
+    
+    local fixed
+    fixed="$(THEFUCK_REQUIRE_CONFIRMATION=False thefuck -y "$cmd" 2>/dev/null)"
+    
+    if [[ -n "$fixed" ]]; then
+      echo "$fixed"
+      eval "$fixed" </dev/tty
     fi
   }
 fi
