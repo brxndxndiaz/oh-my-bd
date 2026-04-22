@@ -75,9 +75,82 @@ switch() {
   fi
 }
 
+# --- BRANCH ---
+branch() {
+  local cmd="${1:-}"
+  
+  if [[ "$cmd" == "help" ]]; then
+    cat << 'EOF'
+branch — Git branch manager
+
+Usage:
+  branch            Show current branch
+  branch ls        List all branches
+  branch new <name> Create and switch to new branch
+  branch rm <name> Delete local branch
+  branch rename <new> Rename current branch
+  branch track <remote>  Set upstream tracking
+EOF
+    return
+  fi
+  
+  case "$cmd" in
+    ls|"")
+      if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1 && [[ -n "$FZF_DEFAULT_COMMAND" || -x "$(command -v fzf 2>/dev/null)" ]]; then
+        git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+          fzf --height=60% --prompt="Branches: " --layout=reverse
+      else
+        git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes
+      fi
+      ;;
+    new)
+      [[ -z "$2" ]] && echo "Usage: branch new <name>" && return 1
+      git switch -c "$2"
+      ;;
+    rm)
+      [[ -z "$2" ]] && echo "Usage: branch rm <name>" && return 1
+      git branch -d "$2"
+      ;;
+    rename)
+      [[ -z "$2" ]] && echo "Usage: branch rename <new-name>" && return 1
+      git branch -m "$2"
+      ;;
+    track)
+      [[ -z "$2" ]] && echo "Usage: branch track <remote-branch>" && return 1
+      git branch --set-upstream-to="origin/$2"
+      ;;
+    *)
+      git branch --show-current
+      ;;
+  esac
+}
+
 # --- BRANCHES ---
 branches() {
-  git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes
+  if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1; then
+    local result
+    result=$(git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+      fzf --height=70% --prompt="Switch branch: " --layout=reverse --expect=enter)
+    echo ""
+    if [[ -z "$result" ]]; then return 0; fi
+    local key="${result%%$'\n'*}"
+    local selected="${result#*$'\n'}"
+    if [[ "$key" == "enter" || -n "$selected" ]]; then
+      git switch "$selected"
+    fi
+  else
+    git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes
+  fi
+}
+
+# --- CHANGED ---
+changed() {
+  git diff --name-only HEAD
+}
+
+# --- ROOT ---
+root() {
+  cd "$(git rev-parse --show-toplevel 2>/dev/null)" || echo "Not a git repository"
 }
 
 # --- CREATE + SWITCH ---
@@ -178,5 +251,79 @@ release() {
     printf "${RED}Release failed. Check release.sh exists.${RESET}\n"
     return 1
   fi
+}
+
+# --- REPO ---
+repo() {
+  local cmd="${1:-}"
+  
+  if [[ "$cmd" == "help" ]]; then
+    cat << 'EOF'
+repo — Git repository utilities
+
+Usage:
+  repo            Repo summary
+  repo root       Jump to git root
+  repo open       Open origin URL in browser
+  repo name       Print owner/repo
+  repo main      Detect default branch name
+  repo url       Print origin URL
+  repo pr        Open PR creation page
+  repo issues    Open issues page
+EOF
+    return
+  fi
+  
+  case "$cmd" in
+    root)
+      local root_dir
+      root_dir="$(git rev-parse --show-toplevel 2>/dev/null)"
+      if [[ -n "$root_dir" ]]; then
+        cd "$root_dir"
+      else
+        echo "Not a git repository"
+        return 1
+      fi
+      ;;
+    open)
+      git remote get-url origin 2>/dev/null | xargs open 2>/dev/null || \
+        { echo "No remote URL found"; return 1; }
+      ;;
+    name)
+      git remote get-url origin 2>/dev/null |
+        sed 's/.*[\/:]\([^\/]*\)\/\([^.]*\).*/\1\/\2/'
+      ;;
+    main)
+      local remote
+      remote="$(git remote 2>/dev/null | head -1)"
+      if [[ -n "$remote" ]]; then
+        git symbolic-ref "refs/remotes/$remote/HEAD" 2>/dev/null |
+          sed "s|refs/remotes/$remote/||"
+      else
+        echo "main"
+      fi
+      ;;
+    url)
+      git remote get-url "${2:-origin}" 2>/dev/null
+      ;;
+    pr)
+      local url branch
+      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
+      branch="$(git branch --show-current 2>/dev/null)"
+      open "${url}/compare/main...${branch}?expand=1" 2>/dev/null
+      ;;
+    issues)
+      local url
+      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
+      open "${url}/issues" 2>/dev/null
+      ;;
+    *)
+      local branch url
+      branch="$(git branch --show-current 2>/dev/null || echo "(detached)")"
+      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
+      echo "repo   : $url"
+      echo "branch : $branch"
+      ;;
+  esac
 }
 

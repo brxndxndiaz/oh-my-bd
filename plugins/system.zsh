@@ -68,15 +68,6 @@ alias c='clear'
 # --- PORT CHECK ---
 alias ports='ss -tulanp 2>/dev/null || netstat -tulanp'
 
-# --- DISCARD CHANGES ---
-discard() {
-  if [[ -z "$1" ]]; then
-    git reset --hard HEAD
-  else
-    git checkout -- "$@"
-  fi
-}
-
 # --- SYSTEM HELP ---
 sys() {
   if [[ "$1" == "help" ]]; then

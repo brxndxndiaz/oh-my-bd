@@ -29,10 +29,23 @@ EOF
       echo "No bookmarks. Add: cdc add <name> <path>"
       return
     fi
-    echo "Bookmarks:"
-    while IFS='|' read -r name dir; do
-      echo "  $name  →  $dir"
-    done < "$CDC_DIR"
+    if command -v fzf >/dev/null 2>&1; then
+      local result
+      result=$(awk -F'|' '{print $1 " → " $2}' "$CDC_DIR" |
+        fzf --height=60% --prompt="Jump to project: " --layout=reverse \
+           --preview='echo {..}' --preview-window=right:50%)
+      if [[ -n "$result" ]]; then
+        local target="${result#*→ }"
+        target="${target#"${target%%[![:space:]]*}"}"
+        target="${target%A}"
+        cd "$target" 2>/dev/null || { echo "Directory not found: $target"; return 1; }
+      fi
+    else
+      echo "Bookmarks:"
+      while IFS='|' read -r name dir; do
+        echo "  $name  →  $dir"
+      done < "$CDC_DIR"
+    fi
     return
   fi
 

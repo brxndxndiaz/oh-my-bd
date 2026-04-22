@@ -43,14 +43,28 @@ Restart your shell when done.
 | `status` | Git status |
 | `add` | Stage all changes |
 | `commit <msg>` | Commit (auto-stages if empty) |
-| `switch <branch>` | Switch branch |
+| `switch <branch>` | Switch branch (fzf picker) |
+| `switch` | Interactive branch picker |
 | `create <branch>` | Create + switch |
 | `sync` | Fetch + rebase + push |
 | `undo` | Undo last commit (keep changes) |
 | `discard` | Undo last commit (discard changes) |
 | `stash` / `unstash` | Stash management |
 | `log` | Pretty log graph |
-| `branches` | List all branches |
+| `branches` | List all branches (fzf picker) |
+| `branch` | Branch manager |
+| `branch ls` | List branches |
+| `branch new <name>` | Create branch |
+| `branch rm <name>` | Delete branch |
+| `branch rename <new>` | Rename current branch |
+| `repo` | Repo summary |
+| `repo open` | Open repo in browser |
+| `repo root` | Jump to git root |
+| `repo name` | Print owner/repo |
+| `repo pr` | Open PR page |
+| `repo issues` | Open issues page |
+| `root` | Jump to git root |
+| `changed` | Show changed files |
 
 ### Docker
 

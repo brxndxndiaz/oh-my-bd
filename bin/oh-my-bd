@@ -137,8 +137,8 @@ show_help_git() {
   omb "  ${GREEN}status${RESET}    git status -sb"
   omb "  ${GREEN}add${RESET}      git add"
   omb "  ${GREEN}commit${RESET}    git commit (opens editor)"
-  omb "  ${GREEN}switch${RESET}    git checkout"
-  omb "  ${GREEN}create${RESET}    git checkout -b (new branch)"
+  omb "  ${GREEN}switch${RESET}    git switch (interactive)"
+  omb "  ${GREEN}create${RESET}    git switch -c (new branch)"
   omb "  ${GREEN}sync${RESET}      git pull --rebase && git push"
   omb "  ${GREEN}fetch${RESET}     git fetch --all"
   omb "  ${GREEN}push${RESET}      git push"
@@ -148,7 +148,13 @@ show_help_git() {
   omb "  ${GREEN}discard${RESET}    git reset --hard HEAD"
   omb "  ${GREEN}stash${RESET}     git stash"
   omb "  ${GREEN}unstash${RESET}    git stash pop"
-  omb "  ${GREEN}branches${RESET}   git branch -a"
+  omb "  ${GREEN}branches${RESET}   List branches (fzf)"
+  omb "  ${GREEN}branch${RESET}    Branch manager"
+  omb "  ${GREEN}branch ls${RESET}  List all branches"
+  omb "  ${GREEN}branch new${RESET} Create new branch"
+  omb "  ${GREEN}repo${RESET}      Repo utilities"
+  omb "  ${GREEN}root${RESET}      Jump to git root"
+  omb "  ${GREEN}changed${RESET}   Show changed files"
   omb "  ${GREEN}tag${RESET}       Create git tag"
   omb "  ${GREEN}tags${RESET}      List git tags"
   omb "  ${GREEN}release${RESET}    Create release (patch|minor|major)"
@@ -317,6 +323,84 @@ cmd_uninstall() {
   omb ""
 }
 
+cmd_doctor() {
+  local ok=0
+  local warn=0
+  
+  omb_banner
+  omb "${BOLD}oh-my-bd doctor${RESET}"
+  omb ""
+  
+  omb "${BOLD}Dependencies${RESET}"
+  
+  command -v zsh >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} zsh" || { omb "  ${RED}[FAIL]${RESET} zsh"; ((ok++)); }
+  command -v git >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} git" || { omb "  ${RED}[FAIL]${RESET} git"; ((ok++)); }
+  command -v fzf >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} fzf (optional)" || { omb "  ${YELLOW}[WARN]${RESET} fzf (optional - fzf pickers disabled)"; ((warn++)); }
+  command -v docker >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} docker (optional)" || omb "  ${YELLOW}[WARN]${RESET} docker (optional)"
+  
+  omb ""
+  omb "${BOLD}Installation${RESET}"
+  
+  if [[ -d "$OMBD_DIR" ]]; then
+    omb "  ${GREEN}[OK]${RESET} OMBD_DIR: $OMBD_DIR"
+  else
+    omb "  ${RED}[FAIL]${RESET} OMBD_DIR not found: $OMBD_DIR"
+    ((ok++))
+  fi
+  
+  if [[ -f "$OMBD_DIR/lib/core.zsh" ]]; then
+    omb "  ${GREEN}[OK]${RESET} core.zsh found"
+  else
+    omb "  ${RED}[FAIL]${RESET} core.zsh not found"
+    ((ok++))
+  fi
+  
+  if grep -q "oh-my-bd" "${HOME}/.zshrc" 2>/dev/null; then
+    omb "  ${GREEN}[OK]${RESET} .zshrc configured"
+  else
+    omb "  ${YELLOW}[WARN]${RESET} oh-my-bd not in .zshrc"
+    ((warn++))
+  fi
+  
+  omb ""
+  omb "${BOLD}Duplicate Commands${RESET}"
+  
+  local -A counts
+  local cmd
+  for cmd in discard; do
+    local paths
+    paths="$(which -a "$cmd" 2>/dev/null | wc -l | tr -d ' ')"
+    if [[ "$paths" -gt 1 ]]; then
+      omb "  ${YELLOW}[WARN]${RESET} '$cmd' defined in multiple places ($paths)"
+      ((warn++))
+    else
+      omb "  ${GREEN}[OK]${RESET} $cmd"
+    fi
+  done
+  
+  omb ""
+  omb "${BOLD}Plugins${RESET}"
+  
+  local -a plugins=(git docker notes qol system compose fzf)
+  for plugin in $plugins; do
+    if [[ -f "$OMBD_DIR/plugins/${plugin}.zsh" ]]; then
+      omb "  ${GREEN}[OK]${RESET} ${plugin}.zsh"
+    else
+      omb "  ${DIM}[--]${RESET} ${plugin}.zsh (not loaded)"
+    fi
+  done
+  
+  omb ""
+  if (( ok > 0 )); then
+    omb "${RED}Issues: $ok failures${RESET}"
+  elif (( warn > 0 )); then
+    omb "${YELLOW}Warnings: $warn${RESET}"
+  else
+    omb "${GREEN}All checks passed${RESET}"
+  fi
+  omb ""
+}
+
 cmd_version() {
   omb "${GREEN}oh-my-bd v1.0.0${RESET}"
 }
@@ -340,6 +424,7 @@ cmd_help() {
   omb "  ${GREEN}remove <name>${RESET}   Remove a plugin"
   omb "  ${GREEN}list [plugin]${RESET}   List plugins (or show plugin help)"
   omb "  ${GREEN}uninstall${RESET}       Remove oh-my-bd completely"
+  omb "  ${GREEN}doctor${RESET}         Run diagnostics"
   omb "  ${GREEN}version${RESET}         Show version"
   omb ""
   omb "${DIM}EXAMPLES${RESET}"
@@ -361,6 +446,7 @@ else
     remove)    cmd_remove "$@" ;;
     list)      cmd_list "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
+    doctor)    cmd_doctor "$@" ;;
     version)   cmd_version "$@" ;;
     *)         omb "${RED}[ERROR]${RESET} Unknown command: $CMD"; omb "Run ${CYAN}omb help${RESET} for usage."; return 1 ;;
   esac
