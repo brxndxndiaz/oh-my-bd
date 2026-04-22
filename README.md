@@ -65,6 +65,13 @@ Restart your shell when done.
 | `repo issues` | Open issues page |
 | `root` | Jump to git root |
 | `changed` | Show changed files |
+| `work` | Status summary (branch + dirty + docker + env) |
+| `recent` | Recent cdc targets (fzf) |
+| `prune` | Fetch + show gone branches |
+| `publish` | Push + set upstream |
+| `browse pr` | Open PR creation page |
+| `browse issues` | Open issues page |
+| `browse actions` | Open Actions page |
 
 ### Docker
 
@@ -101,7 +108,7 @@ Bookmark and jump to project directories.
 | `cdc add <name> <path>` | Bookmark a project |
 | `cdc <name>` | Jump to project |
 | `cdc rm <name>` | Remove bookmark |
-| `cdc` | List all |
+| `cdc` | Interactive picker (fzf) |
 
 ### Notepad
 
@@ -109,12 +116,13 @@ Project-local notes at `./notes.md`.
 
 | Command | Description |
 |---------|-------------|
+| `note` | Open notes in editor |
 | `note task <text>` | Add task |
 | `note ctx <text>` | Add context |
 | `note bug <text>` | Add bug |
 | `note idea <text>` | Add idea |
 | `note code <text>` | Add code snippet |
-| `notes` | View all |
+| `notes` | View all (fzf picker) |
 | `note wip` | Show incomplete tasks |
 
 ### System
@@ -179,6 +187,9 @@ Use `omb` (short for oh-my-bd) or `oh-my-bd`:
 omb list              # List plugins
 omb list git         # Show git plugin help
 omb update           # Pull latest changes
+omb doctor          # Run diagnostics
+omb search <term>   # Search commands
+omb cheatsheet      # One-page reference
 omb help            # Show help
 ```
 
@@ -187,6 +198,9 @@ omb help            # Show help
 | `omb install` | Run installer |
 | `omb update` | Pull latest changes |
 | `omb uninstall` | Remove oh-my-bd |
+| `omb doctor` | Run diagnostics |
+| `omb search <term>` | Search commands |
+| `omb cheatsheet` | One-page reference |
 
 ---
 

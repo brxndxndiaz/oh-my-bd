@@ -49,6 +49,7 @@ note() {
 note — Project-local notes
 
 Usage:
+  note              Open in editor
   note <text>        Append raw text
   note task <text>   Add to Tasks
   note ctx <text>    Add to Context
@@ -56,8 +57,8 @@ Usage:
   note idea <text>   Add to Ideas
   note dec <text>    Add to Decisions
   note code <text>  Add to Code
-  note              Open in editor
-  notes             View all notes
+  notes             View all notes (or fzf with no args)
+  notes ls          View all notes
   note wip          Show incomplete tasks
   note rm <id>      Remove by ID
   note clear        Reset notes
@@ -68,6 +69,9 @@ EOF
   fi
 
   case "$1" in
+    ls|"")
+      notes
+      ;;
     task|ctx|bug|idea|dec|code)
       local section
       case "$1" in
@@ -126,7 +130,21 @@ noteopen() {
 notes() {
   local notepad="$(_omb_note_file)"
   _omb_note_init
-  [[ -s "$notepad" ]] && cat "$notepad" || echo "No notes in this directory."
+  
+  if [[ "$1" == "help" ]]; then
+    note help
+    return
+  fi
+  
+  if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1; then
+    local result
+    result=$(cat "$notepad" | grep -v '^#' | grep -v '^$' |
+      fzf --height=70% --prompt="Notes: " --layout=reverse \
+         --bind="enter:execute-silent:echo {} | xargs open 2>/dev/null || echo {}")
+    [[ -n "$result" ]] && echo "$result"
+  else
+    cat "$notepad" || echo "No notes in this directory."
+  fi
 }
 
 noteclear() {

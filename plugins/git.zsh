@@ -327,3 +327,118 @@ EOF
   esac
 }
 
+# --- WORK ---
+work() {
+  local branch dirty docker_ctx env_file
+  
+  branch="$(git branch --show-current 2>/dev/null || echo "detached")"
+  if git diff --quiet HEAD 2>/dev/null; then
+    dirty="${GREEN}clean${RESET}"
+  else
+    dirty="${YELLOW}dirty${RESET}"
+  fi
+  
+  docker_ctx="$(command docker context show 2>/dev/null || echo "unknown")"
+  
+  if [[ -f .env ]]; then
+    env_file="${GREEN}.env${RESET}"
+  else
+    env_file="${DIM}no .env${RESET}"
+  fi
+  
+  echo ""
+  echo "  branch    $branch"
+  echo "  status   $dirty"
+  echo "  docker   $docker_ctx"
+  echo "  env      $env_file"
+  echo ""
+}
+
+# --- RECENT ---
+recent() {
+  if [[ ! -f "$HOME/.cdc_dirs" ]]; then
+    echo "No recent bookmarks. Add: cdc add <name> <path>"
+    return
+  fi
+  
+  if command -v fzf >/dev/null 2>&1; then
+    local result
+    result=$(awk -F'|' '{print $1 " -> " $2}' "$HOME/.cdc_dirs" |
+      tac | head -10 |
+      fzf --height=50% --prompt="Recent: " --layout=reverse)
+    if [[ -n "$result" ]]; then
+      local target="${result#*-> }"
+      target="${target#"${target%%[![:space:]]*}"}"
+      cd "$target" 2>/dev/null || { echo "Not found: $target"; return 1; }
+    fi
+  else
+    echo "Recent cdc targets:"
+    tac "$HOME/.cdc_dirs" 2>/dev/null | head -10 | while IFS='|' read -r name dir; do
+      echo "  $name -> $dir"
+    done
+  fi
+}
+
+# --- PRUNE ---
+prune() {
+  echo "Fetching and pruning..."
+  git fetch --all --prune 2>/dev/null
+  echo ""
+  echo "Gone remote branches:"
+  git branch -vv 2>/dev/null | grep ':gone]' | awk '{print "  " $1}'
+  echo ""
+  echo "Run 'git branch -D <name>' to delete a gone branch."
+}
+
+# --- PUBLISH ---
+publish() {
+  local branch
+  branch="$(git branch --show-current 2>/dev/null)"
+  if [[ -z "$branch" ]]; then
+    echo "No current branch"
+    return 1
+  fi
+  
+  if git config "branch.${branch}.merge" >/dev/null 2>&1; then
+    echo "Already publishing: $branch"
+    git push
+  else
+    echo "First push: $branch"
+    git push -u origin "$branch"
+  fi
+}
+
+# --- BROWSE ---
+browse() {
+  local cmd="${1:-}"
+  local url base
+  
+  base="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
+  if [[ -z "$base" ]]; then
+    echo "No origin remote"
+    return 1
+  fi
+  
+  case "$cmd" in
+    pr)
+      local branch
+      branch="$(git branch --show-current 2>/dev/null)"
+      url="${base}/compare/main...${branch}?expand=1"
+      ;;
+    issues)
+      url="${base}/issues"
+      ;;
+    actions)
+      url="${base}/actions"
+      ;;
+    releases)
+      url="${base}/releases"
+      ;;
+    *)
+      url="$base"
+      ;;
+  esac
+  
+  open "$url" 2>/dev/null || echo "Open: $url"
+}
+

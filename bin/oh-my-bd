@@ -155,6 +155,11 @@ show_help_git() {
   omb "  ${GREEN}repo${RESET}      Repo utilities"
   omb "  ${GREEN}root${RESET}      Jump to git root"
   omb "  ${GREEN}changed${RESET}   Show changed files"
+  omb "  ${GREEN}work${RESET}     Status summary"
+  omb "  ${GREEN}recent${RESET}    Recent cdc targets"
+  omb "  ${GREEN}prune${RESET}    Prune gone branches"
+  omb "  ${GREEN}publish${RESET}  Push + set upstream"
+  omb "  ${GREEN}browse${RESET}    Open repo pages"
   omb "  ${GREEN}tag${RESET}       Create git tag"
   omb "  ${GREEN}tags${RESET}      List git tags"
   omb "  ${GREEN}release${RESET}    Create release (patch|minor|major)"
@@ -401,6 +406,127 @@ cmd_doctor() {
   omb ""
 }
 
+cmd_search() {
+  local query="${1:-}"
+  if [[ -z "$query" ]]; then
+    omb "Usage: omb search <term>"
+    return 1
+  fi
+  
+  omb_banner
+  omb "${BOLD}Results for:${RESET} $query"
+  omb ""
+  
+  local -A results
+  local cmd desc found=0
+  
+  results[status]="git status -sb"
+  results[add]="git add"
+  results[commit]="git commit"
+  results[switch]="git switch (fzf picker)"
+  results[create]="git switch -c"
+  results[sync]="git pull --rebase && git push"
+  results[fetch]="git fetch --all"
+  results[push]="git push"
+  results[pull]="git pull --rebase"
+  results[log]="git log --oneline --graph"
+  results[undo]="git reset --soft HEAD~1"
+  results[discard]="git reset --hard"
+  results[stash]="git stash"
+  results[branches]="List branches (fzf)"
+  results[branch]="Branch manager"
+  results[branch_ls]="List all branches"
+  results[branch_new]="Create new branch"
+  results[repo]="Repo utilities"
+  results[repo_open]="Open repo in browser"
+  results[repo_root]="Jump to git root"
+  results[repo_pr]="Open PR page"
+  results[work]="Status summary"
+  results[recent]="Recent cdc targets"
+  results[prune]="Prune gone branches"
+  results[publish]="Push + set upstream"
+  results[browse]="Open repo pages"
+  results[root]="Jump to git root"
+  results[changed]="Show changed files"
+  results[cdc]="Jump to project (fzf)"
+  results[cdc_add]="Add bookmark"
+  results[cdc_rm]="Remove bookmark"
+  results[note]="Add project note"
+  results[notes]="View notes (fzf)"
+  results[kill_port]="Kill process on port"
+  results[gopen]="Open in browser"
+  results[tre]="Tree view"]
+  results[ll]="ls -alFh"
+  results[la]="ls -A"
+  results[l]="ls -CF"
+  results[psg]="ps aux | grep"]
+  results[myip]="Show IP address"
+  results[copy]="Copy to clipboard"
+  results[paste]="Paste from clipboard"
+  results[dcup]="docker compose up"
+  results[dcdown]="docker compose down"
+  results[dcstop]="docker compose stop"
+  results[dcstart]="docker compose start"
+  results[dclogs]="docker compose logs"
+  results[dcexec]="docker compose exec"
+  results[dps]="docker ps"
+  results[dpsa]="docker ps -a"]
+  results[clean_containers]="docker container prune"
+  results[clean_images]="docker image prune"
+  results[context]="Docker context"
+  results[lz]="lazydocker"
+  
+  for cmd desc in ${(kv)results}; do
+    if [[ "${cmd}${desc}" =~ $query ]]; then
+      omb "  ${CYAN}${cmd}${RESET}  ${desc}"
+      found=1
+    fi
+  done
+  
+  if (( !found )); then
+    omb "${YELLOW}No matches${RESET}"
+  fi
+  omb ""
+}
+
+cmd_cheatsheet() {
+  omb_banner
+  omb "${BOLD}oh-my-bd — Top Commands${RESET}"
+  omb ""
+  
+  omb "${BOLD}Git${RESET}"
+  omb "  status  add  commit  switch  create  sync  push  pull  log"
+  omb "  undo  discard  stash  branches  branch  repo  root  changed"
+  omb ""
+  
+  omb "${BOLD}CDC (projects)${RESET}"
+  omb "  cdc add <name> <path>   Add bookmark"
+  omb "  cdc <name>           Jump to project"
+  omb "  cdc                 Interactive picker"
+  omb "  cdc rm <name>        Remove"
+  omb ""
+  
+  omb "${BOLD}Notes${RESET}"
+  omb "  note task <text>   Add task"
+  omb "  note bug <text>    Log bug"
+  omb "  note idea <text>   Record idea"
+  omb "  notes             View notes"
+  omb ""
+  
+  omb "${BOLD}Docker${RESET}"
+  omb "  dcup  dcdown  dcstop  dcstart  dclogs  dcexec <svc>"
+  omb "  dps  dpsa  clean-containers  clean-images"
+  omb ""
+  
+  omb "${BOLD}System${RESET}"
+  omb "  ll  la  l  psg <name>  myip  copy  paste"
+  omb "  kill-port <port>  gopen <url>  tre"
+  omb ""
+  
+  omb "${DIM}Run '${CYAN}omb list${DIM}' for full help.${RESET}"
+  omb ""
+}
+
 cmd_version() {
   omb "${GREEN}oh-my-bd v1.0.0${RESET}"
 }
@@ -425,6 +551,8 @@ cmd_help() {
   omb "  ${GREEN}list [plugin]${RESET}   List plugins (or show plugin help)"
   omb "  ${GREEN}uninstall${RESET}       Remove oh-my-bd completely"
   omb "  ${GREEN}doctor${RESET}         Run diagnostics"
+  omb "  ${GREEN}search <term>${RESET}   Search commands"
+  omb "  ${GREEN}cheatsheet${RESET}       One-page command reference"
   omb "  ${GREEN}version${RESET}         Show version"
   omb ""
   omb "${DIM}EXAMPLES${RESET}"
@@ -440,13 +568,15 @@ if [[ -z "$CMD" || "$CMD" == "help" || "$CMD" == "--help" || "$CMD" == "-h" ]]; 
 else
   shift 2>/dev/null
   case "$CMD" in
-    install)   cmd_install "$@" ;;
-    update)    cmd_update "$@" ;;
-    add)       cmd_add "$@" ;;
-    remove)    cmd_remove "$@" ;;
-    list)      cmd_list "$@" ;;
-    uninstall) cmd_uninstall "$@" ;;
+    install)    cmd_install "$@" ;;
+    update)     cmd_update "$@" ;;
+    add)        cmd_add "$@" ;;
+    remove)     cmd_remove "$@" ;;
+    list)       cmd_list "$@" ;;
+    uninstall)  cmd_uninstall "$@" ;;
     doctor)    cmd_doctor "$@" ;;
+    search)    cmd_search "$@" ;;
+    cheatsheet) cmd_cheatsheet "$@" ;;
     version)   cmd_version "$@" ;;
     *)         omb "${RED}[ERROR]${RESET} Unknown command: $CMD"; omb "Run ${CYAN}omb help${RESET} for usage."; return 1 ;;
   esac
