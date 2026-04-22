@@ -201,6 +201,7 @@ show_help_system() {
   omb "  ${GREEN}ll${RESET}      ls -la (list all files)"
   omb "  ${GREEN}la${RESET}      ls -A (list except . and ..)"
   omb "  ${GREEN}l${RESET}       ls -CF"
+  omb "  ${GREEN}dir${RESET}     real ls output (bypass wrappers)"
   omb "  ${GREEN}psg${RESET}     ps aux | grep (process search)"
   omb "  ${GREEN}myip${RESET}    Show external IP"
   omb "  ${GREEN}copy${RESET}    Copy to clipboard (pbcopy)"

@@ -11,6 +11,9 @@ ombd_autoenv_load() {
       [[ "$line" =~ ^[[:space:]]*# ]] && continue
       [[ -z "${line// }" ]] && continue
       
+      line="${line%%#*}"
+      [[ -z "$line" ]] && continue
+      
       if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*) ]]; then
         local key="${match[1]}"
         local val="${match[2]}"

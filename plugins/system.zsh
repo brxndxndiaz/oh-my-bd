@@ -14,6 +14,14 @@ alias ll='ls -alFh'
 alias la='ls -A'
 alias l='ls -CF'
 
+dir() {
+  if [[ "$(uname)" == "Darwin" ]]; then
+    command ls -GF "$@"
+  else
+    command ls --color=auto -F "$@"
+  fi
+}
+
 # --- PROCESS MANAGEMENT ---
 alias psg='ps aux | grep -v grep | grep'
 alias top='htop 2>/dev/null || top'
@@ -77,6 +85,7 @@ sys — System utilities
 
 Aliases:
   ls, ll, la, l    Better ls variants
+  dir [path]       Real ls output (bypasses wrappers)
   psg <name>       Grep processes
   top              htop or top
   cx <file>        chmod +x

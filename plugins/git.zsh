@@ -33,8 +33,37 @@ switch() {
   local branch="$1"
 
   if [[ -z "$branch" ]]; then
-    echo "Usage: switch <branch>"
-    return 1
+    local result
+    result=$(
+      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+      fzf --height=70% \
+        --prompt="Switch to branch: " \
+        --expect=ctrl-n \
+        --layout=reverse \
+        --header="Ctrl+N: create new branch"
+    )
+    
+    echo "" # newline after fzf
+    
+    if [[ -z "$result" ]]; then
+      return 0
+    fi
+    
+    local key selected
+    key="${result%%$'\n'*}"
+    selected="${result#*$'\n'}"
+    
+    if [[ "$key" == "ctrl-n" ]]; then
+      local new_branch
+      echo -n "Create new branch: "
+      read new_branch
+      if [[ -n "$new_branch" ]]; then
+        git switch -c "$new_branch"
+      fi
+    elif [[ -n "$selected" ]]; then
+      git switch "$selected"
+    fi
+    return 0
   fi
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
