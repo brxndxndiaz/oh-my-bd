@@ -30,7 +30,20 @@ commit() {
 
 # --- SWITCH ---
 switch() {
-  git switch "$1" 2>/dev/null || git switch -c "$1"
+  local branch="$1"
+
+  if [[ -z "$branch" ]]; then
+    echo "Usage: switch <branch>"
+    return 1
+  fi
+
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git switch "$branch"
+  elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+    git switch --track "origin/$branch"
+  else
+    git switch -c "$branch"
+  fi
 }
 
 # --- BRANCHES ---
@@ -137,5 +150,4 @@ release() {
     return 1
   fi
 }
-
 
