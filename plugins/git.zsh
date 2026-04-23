@@ -35,7 +35,7 @@ switch() {
   if [[ -z "$branch" ]]; then
     local result
     result=$(
-      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads |
       fzf --height=70% \
         --prompt="Switch to branch: " \
         --expect=ctrl-n \
