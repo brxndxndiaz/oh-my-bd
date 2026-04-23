@@ -35,7 +35,7 @@ switch() {
   if [[ -z "$branch" ]]; then
     local result
     result=$(
-      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads |
+      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
       fzf --height=70% \
         --prompt="Switch to branch: " \
         --expect=ctrl-n \
@@ -61,7 +61,12 @@ switch() {
         git switch -c "$new_branch"
       fi
     elif [[ -n "$selected" ]]; then
-      git switch "$selected"
+      if [[ "$selected" =~ ^origin/ ]]; then
+        local branch_name="${selected#origin/}"
+        git switch --track "origin/$branch_name"
+      else
+        git switch "$selected"
+      fi
     fi
     return 0
   fi
