@@ -33,42 +33,41 @@ switch() {
   local branch="$1"
 
   if [[ -z "$branch" ]]; then
-    local result
+    local create_branch_file result query selected
+    create_branch_file="$(mktemp)"
+
     result=$(
       git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
       fzf --height=70% \
-        --prompt="Switch to branch: " \
-        --expect=ctrl-n \
+        --prompt="Switch branch: " \
+        --print-query \
         --layout=reverse \
-        --header="Ctrl+N: create new branch"
+        --header="Enter: switch highlighted branch or create typed branch if no match | Tab: create typed branch" \
+        --bind="tab:execute-silent(printf '%s' {q} > '$create_branch_file')+abort"
     )
-    
-    echo "" # newline after fzf
-    
-    if [[ -z "$result" ]]; then
+
+    echo ""
+
+    branch="$(<"$create_branch_file")"
+    rm -f "$create_branch_file"
+
+    if [[ -n "$branch" ]]; then
+      git switch -c "$branch"
       return 0
     fi
-    
-    local key selected
-    key="${result%%$'\n'*}"
+
+    query="${result%%$'\n'*}"
     selected="${result#*$'\n'}"
-    
-    if [[ "$key" == "ctrl-n" ]]; then
-      local new_branch
-      echo -n "Create new branch: "
-      read new_branch
-      if [[ -n "$new_branch" ]]; then
-        git switch -c "$new_branch"
-      fi
-    elif [[ -n "$selected" ]]; then
-      if [[ "$selected" =~ ^origin/ ]]; then
-        local branch_name="${selected#origin/}"
-        git switch --track "origin/$branch_name"
+
+    if [[ -z "$selected" ]]; then
+      if [[ -n "$query" ]]; then
+        branch="$query"
       else
-        git switch "$selected"
+        return 0
       fi
+    else
+      branch="$selected"
     fi
-    return 0
   fi
 
   if git show-ref --verify --quiet "refs/heads/$branch"; then
@@ -446,4 +445,3 @@ browse() {
   
   open "$url" 2>/dev/null || echo "Open: $url"
 }
-
