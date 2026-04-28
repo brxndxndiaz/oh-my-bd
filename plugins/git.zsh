@@ -2,6 +2,10 @@
 # oh-my-bd — git.zsh — Git shortcuts
 # ============================================================
 
+ombd_git_branch_refs() {
+  git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads refs/remotes
+}
+
 # --- STATUS ---
 status() {
   git status -sb
@@ -37,7 +41,7 @@ switch() {
     create_branch_file="$(mktemp)"
 
     result=$(
-      git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+      ombd_git_branch_refs |
       fzf --height=70% \
         --prompt="Switch branch: " \
         --print-query \
@@ -101,10 +105,10 @@ EOF
   case "$cmd" in
     ls|"")
       if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1 && [[ -n "$FZF_DEFAULT_COMMAND" || -x "$(command -v fzf 2>/dev/null)" ]]; then
-        git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+        ombd_git_branch_refs |
           fzf --height=60% --prompt="Branches: " --layout=reverse
       else
-        git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes
+        ombd_git_branch_refs
       fi
       ;;
     new)
@@ -133,7 +137,7 @@ EOF
 branches() {
   if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1; then
     local result
-    result=$(git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes |
+    result=$(ombd_git_branch_refs |
       fzf --height=70% --prompt="Switch branch: " --layout=reverse --expect=enter)
     echo ""
     if [[ -z "$result" ]]; then return 0; fi
@@ -143,7 +147,7 @@ branches() {
       git switch "$selected"
     fi
   else
-    git for-each-ref --sort=refname --format='%(refname:short)' refs/heads refs/remotes
+    ombd_git_branch_refs
   fi
 }
 
