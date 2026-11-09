@@ -20,7 +20,7 @@ export OMBD_VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
   source "$OMBD_DIR/lib/utils.zsh"
 
   # User config: ~/.config/oh-my-bd/config.zsh (see config.example.zsh)
-  [[ -r "$OMBD_CONFIG_DIR/config.zsh" ]] && source "$OMBD_CONFIG_DIR/config.zsh"
+  [[ "${_ombd_reloading:-0}" != 1 && -r "$OMBD_CONFIG_DIR/config.zsh" ]] && source "$OMBD_CONFIG_DIR/config.zsh"
 
   # Built-in plugins, in load order. Override with OMBD_PLUGINS=(...) in config.
   local -a builtin=(system git docker compose qol notes fzf autoenv)
@@ -41,6 +41,7 @@ export OMBD_VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
 
   # Custom plugins (created with `omb add <name>`), loaded alphabetically.
   for f in "$OMBD_CUSTOM"/*.zsh(N); do
+    [[ "${_ombd_reloading:-0}" == 1 ]] && break
     p="${f:t:r}"
     (( ${disabled[(Ie)$p]} )) && continue
     ombd_log debug "load custom: $p"
@@ -57,6 +58,14 @@ unalias omb 2>/dev/null
 omb() {
   if (( $# == 0 )) || [[ "$1" == palette || "$1" == p ]]; then
     ombd_palette
+  elif [[ -o interactive && "$1" == (update|upgrade) ]]; then
+    OMBD_UPDATE_IN_SHELL=1 command "$OMBD_DIR/bin/oh-my-bd" "$@" || return
+    local _ombd_reloading=1 file
+    for file in "$OMBD_DIR"/lib/*.zsh "$OMBD_DIR"/plugins/*.zsh; do
+      zsh -n "$file" || { print -u2 -- "oh-my-bd: reload stopped at $file"; return 1; }
+    done
+    source "$OMBD_DIR/lib/core.zsh" || return
+    print -r -- 'oh-my-bd reloaded in this shell.'
   else
     command "$OMBD_DIR/bin/oh-my-bd" "$@"
   fi
@@ -103,7 +112,7 @@ ombd_palette() {
 if [[ -o interactive ]]; then
   _ombd_palette_widget() { ombd_palette </dev/tty; zle reset-prompt; }
   zle -N _ombd_palette_widget
-  bindkey '^X^O' _ombd_palette_widget
+  [[ "${_ombd_reloading:-0}" != 1 ]] && bindkey '^X^O' _ombd_palette_widget
 fi
 
 # Wait for the first prompt. Some prompt themes redirect the startup streams.
@@ -111,11 +120,12 @@ function _ombd_daily_tip {
   emulate -L zsh
   [[ -t 1 ]] || return 0
   add-zsh-hook -d precmd _ombd_daily_tip
+  add-zle-hook-widget -d line-init _ombd_daily_tip
   [[ "${OMBD_TIP_OF_DAY:-1}" != 0 ]] || return 0
-  zmodload zsh/datetime zsh/system 2>/dev/null || return 0
 
   local today state="$OMBD_CONFIG_DIR/tip-of-day" lock last tip
-  strftime -s today %Y%j "$EPOCHSECONDS" || return 0
+  today="$(command date +%Y%j)" || return 0
+  lock="$state.$today.lock"
   [[ -r "$state" ]] && read -r last < "$state"
   [[ "$last" == "$today" ]] && return 0
 
@@ -132,19 +142,24 @@ function _ombd_daily_tip {
   tip="${tips[10#$today % ${#tips} + 1]}"
 
   command mkdir -p -- "$OMBD_CONFIG_DIR" 2>/dev/null || return 0
-  { : >> "$state"; } 2>/dev/null || return 0
-  zsystem flock -t 0 -f lock "$state" 2>/dev/null || return 0
-  # A different terminal may have written today's stamp while this one started.
-  read -r last < "$state"
-  if [[ "$last" != "$today" ]] && { print -r -- "$today" >| "$state"; } 2>/dev/null; then
-    print -r -- "$(ombd_color cyan 'omb tip ·') $tip"
-  fi
-  zsystem flock -u "$lock"
+  command mkdir -- "$lock" 2>/dev/null || return 0
+  {
+    # Another terminal may have already written today's stamp.
+    [[ -r "$state" ]] && read -r last < "$state"
+    if [[ "$last" != "$today" ]] && { print -r -- "$today" >| "$state"; } 2>/dev/null; then
+      zle -I 2>/dev/null
+      print -r -- "$(ombd_color cyan 'omb tip ·') $tip"
+    fi
+  } always {
+    command rmdir -- "$lock" 2>/dev/null
+  }
+  return 0
 }
 
 if [[ -o interactive && "${OMBD_TIP_OF_DAY:-1}" != 0 ]]; then
-  autoload -Uz add-zsh-hook
+  autoload -Uz add-zsh-hook add-zle-hook-widget
   add-zsh-hook precmd _ombd_daily_tip
+  add-zle-hook-widget line-init _ombd_daily_tip
 fi
 
 # ============================================================
@@ -181,3 +196,5 @@ fi
     fi
   } >/dev/null 2>&1 &!
 }
+
+return 0

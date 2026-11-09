@@ -7,6 +7,7 @@ ombd_has fzf || return 0
 # Key bindings: fzf >= 0.48 ships them via `fzf --zsh`; older versions
 # (e.g. Ubuntu/Debian packages) install them as files.
 () {
+  [[ "${_ombd_reloading:-0}" == 1 ]] && return 0
   local ver="${$(fzf --version 2>/dev/null)%% *}" maj min
   maj="${ver%%.*}"; min="${${ver#*.}%%.*}"
   if (( maj > 0 || min >= 48 )); then
@@ -141,7 +142,7 @@ function _ombd_find_files_widget {
 }
 if [[ -o interactive ]]; then
   zle -N _ombd_find_files_widget
-  bindkey '^F' _ombd_find_files_widget
+  [[ "${_ombd_reloading:-0}" != 1 ]] && bindkey '^F' _ombd_find_files_widget
 fi
 
 # ff [here|everywhere|recent] — same finder as a command: prints the chosen path(s)

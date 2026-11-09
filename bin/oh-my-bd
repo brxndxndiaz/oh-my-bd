@@ -225,7 +225,9 @@ cmd_update() {
   else
     print "${G}Updated to $(<VERSION).${X} Changes:"
     git log --oneline --no-decorate "$before"..HEAD | head -20 | sed 's/^/  /'
-    print "\nRun ${C}exec zsh${X} to reload."
+    if [[ "${OMBD_UPDATE_IN_SHELL:-0}" != 1 ]]; then
+      print "\nOpen a new terminal to load the update."
+    fi
   fi
 }
 

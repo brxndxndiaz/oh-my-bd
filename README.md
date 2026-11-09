@@ -187,7 +187,7 @@ omb changelog   # recent changes
 omb uninstall   # remove (asks whether to keep your config and bookmarks)
 ```
 
-`omb update` fast-forwards a clean install checkout. If the checkout has local commits or edits that block the update, it stops and leaves them in place.
+`omb update` fast-forwards a clean install checkout and reloads built-in commands in your current interactive zsh session. Custom startup scripts and config edits take effect in a new shell. If the checkout has local commits or edits that block the update, it stops and leaves them in place.
 
 The first interactive zsh terminal you open each day shows a short command tip. Set `OMBD_TIP_OF_DAY=0` in your oh-my-bd config to turn it off.
 
