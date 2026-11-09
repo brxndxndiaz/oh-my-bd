@@ -1,157 +1,129 @@
 # ============================================================
-# oh-my-bd — notes.zsh — Project notepad for human + AI
+# oh-my-bd — notes.zsh — Project notepad for humans + AI agents
+# Notes live in ./notes.md (override: OMBD_NOTES_FILE=NOTES.md).
+# Entries look like:  - [12] [2026-11-09 10:00] text
+# Finished tasks:     - [x] [12] [2026-11-09 10:00] text
 # ============================================================
 
-export OMB_NOTE_ID=0
+typeset -gA _OMBD_NOTE_SECTIONS=(
+  task Tasks  ctx Context  bug Bugs  idea Ideas  dec Decisions  code Code
+)
 
-_omb_note_file() {
-  echo "${PWD}/notes.md"
+function _omb_note_file {
+  # Prefer the git root so `note` works from any subdirectory of a project.
+  local root
+  root="$(git rev-parse --show-toplevel 2>/dev/null)" || root="$PWD"
+  print -r -- "$root/${OMBD_NOTES_FILE:-notes.md}"
 }
 
-_omb_note_init() {
-  local notepad="$(_omb_note_file)"
-  [[ -f "$notepad" ]] && return
-  printf '%s\n' \
-    "# Notes" \
-    "" \
-    "## Tasks" \
-    "" \
-    "## Context" \
-    "" \
-    "## Bugs" \
-    "" \
-    "## Ideas" \
-    "" \
-    "## Decisions" \
-    "" \
-    "## Code" \
-    > "$notepad"
+function _omb_note_init {
+  local f="$(_omb_note_file)"
+  [[ -s "$f" ]] && return
+  print -rl -- "# Notes" "" "## Tasks" "" "## Context" "" "## Bugs" "" "## Ideas" "" \
+    "## Decisions" "" "## Code" "" > "$f"
 }
 
-_omb_note_section_line() {
-  local notepad="$(_omb_note_file)"
-  grep -n "^## ${1}$" "$notepad" 2>/dev/null | cut -d: -f1 | head -1
+function _omb_note_next_id {
+  local max
+  max="$(grep -oE '^- (\[x\] )?\[[0-9]+\]' "$(_omb_note_file)" 2>/dev/null |
+    grep -oE '[0-9]+' | sort -n | tail -1)"
+  print $(( ${max:-0} + 1 ))
 }
 
-_omb_note_next_id() {
-  local notepad="$(_omb_note_file)"
-  local max_id
-  max_id="$(grep -o '\[ *[0-9]* *\]' "$notepad" 2>/dev/null | grep -o '[0-9]*' | sort -n | tail -1)"
-  echo $((max_id + 1))
-}
-
-note() {
-  local notepad="$(_omb_note_file)"
+function _omb_note_add {
+  local section="$1"; shift
+  local f="$(_omb_note_file)"
   _omb_note_init
-
-  if [[ -z "$1" ]] || [[ "$1" == "help" ]]; then
-    cat << 'EOF'
-note — Project-local notes
-
-Usage:
-  note              Open in editor
-  note <text>        Append raw text
-  note task <text>   Add to Tasks
-  note ctx <text>    Add to Context
-  note bug <text>    Add to Bugs
-  note idea <text>   Add to Ideas
-  note dec <text>    Add to Decisions
-  note code <text>  Add to Code
-  notes             View all notes (or fzf with no args)
-  notes ls          View all notes
-  note wip          Show incomplete tasks
-  note rm <id>      Remove by ID
-  note clear        Reset notes
-
-Notes are stored in ./notes.md in the current directory.
-EOF
-    return
+  local id="$(_omb_note_next_id)"
+  local entry="- [$id] [$(date '+%Y-%m-%d %H:%M')] $*"
+  if grep -qx "## $section" "$f"; then
+    # Insert after the last entry of the section (keeps chronological order).
+    awk -v sec="## $section" -v entry="$entry" '
+      $0 == sec { insec = 1; print; next }
+      insec && /^## / { print entry; print ""; insec = 0; done = 1; blank = 0 }
+      insec && /^[[:space:]]*$/ { blank++; next }
+      { while (blank > 0) { print ""; blank-- } print }
+      END { if (insec && !done) print entry }
+    ' "$f" > "$f.tmp.$$" && command mv -f "$f.tmp.$$" "$f"
+  else
+    print -r -- $'\n'"## $section"$'\n'"$entry" >> "$f"
   fi
+  print "${OMBD_C_DIM}#$id → $section${OMBD_C_RESET}"
+}
 
-  case "$1" in
-    ls|"")
-      notes
+function _omb_note_pick_id {
+  local f="$(_omb_note_file)" line
+  line="$(grep -E "${1:-^- \[[0-9]+\]}" "$f" 2>/dev/null | ombd_pick "${2:-Note:}")" || return 1
+  print -r -- "${${line#- }#\[x\] }" | grep -oE '^\[[0-9]+\]' | tr -d '[]'
+}
+
+function note {
+  local f="$(_omb_note_file)"
+  case "${1:-}" in
+    help|-h)
+      cat <<'EOF'
+note — Project-local notes (./notes.md at the git root)
+
+  note                Open notes in $EDITOR
+  note task <text>    Add to Tasks          note ctx <text>   Add to Context
+  note bug <text>     Add to Bugs           note idea <text>  Add to Ideas
+  note dec <text>     Add to Decisions      note code <text>  Add to Code
+  note <text>         Append a free line
+  note done [id]      Mark a task done (picker if no id)
+  note wip            Open tasks
+  note rm [id]        Remove an entry (picker if no id)
+  note clear          Reset notes (asks first)
+  notes               Browse/search all notes
+EOF
       ;;
+    "") _omb_note_init; ${=EDITOR:-vi} "$f" ;;
+    open|edit) _omb_note_init; ${=EDITOR:-vi} "$f" ;;
+    ls|list) notes ;;
     task|ctx|bug|idea|dec|code)
-      local section
-      case "$1" in
-        task) section="Tasks" ;;
-        ctx)  section="Context" ;;
-        bug)  section="Bugs" ;;
-        idea) section="Ideas" ;;
-        dec)  section="Decisions" ;;
-        code) section="Code" ;;
-      esac
-      shift
-      [[ -z "$*" ]] && return
-
-      local id ts entry line
-      id="$(_omb_note_next_id)"
-      ts="$(date '+%Y-%m-%d %H:%M')"
-      entry="- [${id}] [${ts}] $*"
-      line="$(_omb_note_section_line "$section")"
-
-      if [[ -n "$line" ]]; then
-        local next_line=$((line))
-        head -n $next_line "$notepad" > "${notepad}.tmp"
-        printf '%s\n' "$entry" >> "${notepad}.tmp"
-        tail -n +$((next_line + 1)) "$notepad" >> "${notepad}.tmp"
-        mv "${notepad}.tmp" "$notepad"
-      else
-        printf '\n## %s\n%s\n' "$section" "$entry" >> "$notepad"
+      local sec="${_OMBD_NOTE_SECTIONS[$1]}"; shift
+      (( $# )) || { print "Usage: note ${(k)_OMBD_NOTE_SECTIONS[(r)$sec]} <text>"; return 1; }
+      _omb_note_add "$sec" "$*" ;;
+    done)
+      local id="$2"
+      if [[ -z "$id" ]]; then
+        local pick; pick="$(note wip | ombd_pick 'Done:')" || return 0
+        id="${${pick#- \[}%%\]*}"
       fi
-      ;;
-    ls)
-      notes
-      ;;
+      grep -q "^- \[$id\] " "$f" 2>/dev/null || { print "No open entry #$id"; return 1; }
+      sed "s/^- \[$id\] /- [x] [$id] /" "$f" > "$f.tmp.$$" && command mv -f "$f.tmp.$$" "$f"
+      print "✓ #$id" ;;
+    undone|reopen)
+      [[ -z "$2" ]] && { print "Usage: note reopen <id>"; return 1; }
+      sed "s/^- \[x\] \[$2\] /- [$2] /" "$f" > "$f.tmp.$$" && command mv -f "$f.tmp.$$" "$f" ;;
     rm)
-      [[ -z "$2" ]] && echo "Usage: note rm <id>" && return 1
-      grep -v "^\- \[${2}\] " "$notepad" > "${notepad}.tmp" && mv "${notepad}.tmp" "$notepad"
-      ;;
-    wip)
-      grep "^\- \[" "$notepad" | grep -v "\[x\]" | head -20
-      ;;
+      local id="$2"
+      [[ -z "$id" ]] && { id="$(_omb_note_pick_id '^- (\[x\] )?\[[0-9]+\]' 'Remove:')" || return 0; }
+      grep -qE "^- (\[x\] )?\[$id\] " "$f" 2>/dev/null || { print "No entry #$id"; return 1; }
+      grep -vE "^- (\[x\] )?\[$id\] " "$f" > "$f.tmp.$$" && command mv -f "$f.tmp.$$" "$f"
+      print "Removed #$id" ;;
+    wip|todo)
+      [[ -f "$f" ]] || { print "No notes here."; return 0; }
+      awk '/^## /{ s = ($0 == "## Tasks") } s && /^- \[[0-9]+\]/' "$f" ;;
     clear)
-      : > "$notepad"
-      _omb_note_init
-      ;;
-    *)
-      printf '%s\n' "$*" >> "$notepad"
-      ;;
+      [[ -f "$f" ]] || return 0
+      ombd_confirm "Erase all notes in ${f/#$HOME/~}?" || return 1
+      : > "$f"; _omb_note_init; print "Notes cleared." ;;
+    *) _omb_note_init; print -r -- "$*" >> "$f" ;;
   esac
 }
 
-noteopen() {
-  local notepad="$(_omb_note_file)"
-  _omb_note_init
-  ${EDITOR:-nano} "$notepad"
-}
-
-notes() {
-  local notepad="$(_omb_note_file)"
-  _omb_note_init
-  
-  if [[ "$1" == "help" ]]; then
-    note help
-    return
-  fi
-  
-  if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1; then
-    local result
-    result=$(cat "$notepad" | grep -v '^#' | grep -v '^$' |
-      fzf --height=70% --prompt="Notes: " --layout=reverse \
-         --bind="enter:execute-silent:echo {} | xargs open 2>/dev/null || echo {}")
-    [[ -n "$result" ]] && echo "$result"
+function notes {
+  local f="$(_omb_note_file)"
+  [[ "$1" == help ]] && { note help; return; }
+  [[ -f "$f" ]] || { print "No notes here. Start with: note task <text>"; return 0; }
+  if ombd_use_fzf; then
+    grep -E '^- ' "$f" | fzf --height=70% --layout=reverse --border --prompt='Notes: ' \
+      --header='Enter: print  •  Esc: close' || true
   else
-    cat "$notepad" || echo "No notes in this directory."
+    cat -- "$f"
   fi
 }
 
-noteclear() {
-  local notepad="$(_omb_note_file)"
-  : > "$notepad"
-  _omb_note_init
-  echo "Notes cleared."
-}
-
+noteopen()  { note open; }
+function noteclear { note clear; }
 alias notepad=notes

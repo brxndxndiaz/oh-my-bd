@@ -1,583 +1,398 @@
 #!/usr/bin/env zsh
-# vim: set filetype=zsh:
 # ============================================================
-# oh-my-bd — CLI entry point
+# oh-my-bd — CLI (`omb` / `oh-my-bd`)
 # ============================================================
+
+emulate -L zsh
+setopt extendedglob
 
 export OMBD_DIR="${OMBD_DIR:-$HOME/.oh-my-bd}"
+export OMBD_CONFIG_DIR="${OMBD_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/oh-my-bd}"
+export OMBD_CUSTOM="${OMBD_CUSTOM:-$OMBD_CONFIG_DIR/plugins}"
+CONFIG_FILE="$OMBD_CONFIG_DIR/config.zsh"
+REGISTRY="$OMBD_DIR/lib/commands.tsv"
+ZSHRC="${ZDOTDIR:-$HOME}/.zshrc"
+MARK_BEGIN='# >>> oh-my-bd >>>'
+MARK_END='# <<< oh-my-bd <<<'
 
-RED=$'\033[0;31m'
-GREEN=$'\033[0;32m'
-YELLOW=$'\033[0;33m'
-BLUE=$'\033[0;34m'
-CYAN=$'\033[0;36m'
-BOLD=$'\033[1m'
-DIM=$'\033[2m'
-RESET=$'\033[0m'
+source "$OMBD_DIR/lib/utils.zsh" || { print -u2 "oh-my-bd not found at $OMBD_DIR"; exit 1; }
+R=$OMBD_C_RED G=$OMBD_C_GREEN Y=$OMBD_C_YELLOW B=$OMBD_C_BLUE C=$OMBD_C_CYAN
+BO=$OMBD_C_BOLD D=$OMBD_C_DIM X=$OMBD_C_RESET
 
-omb() { printf '%b\n' "$1"; }
+VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
+die() { print -u2 -- "${R}error:${X} $*"; exit 1; }
 
-omb_banner() {
-  local b="${BLUE}"
-  local r="${RESET}"
-  local esc=$'\x1b'
-  echo ""
-  echo "${b}       ______     __  __        __    __     __  __        ______     ___${r}"
-  echo "${b}      /\  __ \   /\ \_\ \      /\ \"-./  \   /\ \_\ \      /\  == \   /\  __-. ${r}"
-  echo "${b}      \ \ \/\ \  \ \  __ \     \ \ \-./\ \  \ \____ \     \ \  __<   \ \ \/\ \ ${r}"
-  echo "${b}       \ \_____\  \ \_\ \_\     \ \_\ \ \_\  \/\_____\     \ \_____\  \ \____- ${r}"
-  echo "${b}        \/_____/   \/_/\/_/      \/_/  \/_/   \/_____/      \/_____/   \/____/ ${r}"
-  echo ""
+banner() {
+  print -r -- "${B}"'       ______     __  __        __    __     __  __        ______     ___'
+  print -r -- '      /\  __ \   /\ \_\ \      /\ "-./  \   /\ \_\ \      /\  == \   /\  __-.'
+  print -r -- '      \ \ \/\ \  \ \  __ \     \ \ \-./\ \  \ \____ \     \ \  __<   \ \ \/\ \'
+  print -r -- '       \ \_____\  \ \_\ \_\     \ \_\ \ \_\  \/\_____\     \ \_____\  \ \____-'
+  print -r -- '        \/_____/   \/_/\/_/      \/_/  \/_/   \/_____/      \/_____/   \/____/'"${X}"
+  print
 }
 
-cmd_install() {
-  omb "${GREEN}Running install.sh...${RESET}"
-  if [[ -x "${OMBD_DIR}/install.sh" ]]; then
-    "${OMBD_DIR}/install.sh"
+# --- registry helpers ----------------------------------------
+registry() { grep -v '^#' "$REGISTRY"; }
+plugin_desc() {
+  case "$1" in
+    git) print "Git shortcuts and pickers" ;;      docker) print "Docker contexts, guard, container pickers" ;;
+    compose) print "Docker Compose shortcuts" ;;   qol) print "Bookmarks, ports, archives, small tools" ;;
+    notes) print "Project notes for you and AI agents" ;; autoenv) print "Load trusted .env files on cd" ;;
+    system) print "ls, processes, clipboard, network" ;; fzf) print "Fuzzy keybindings and pickers" ;;
+    omb) print "oh-my-bd itself" ;; *) print "custom plugin" ;;
+  esac
+}
+print_rows() {   # stdin: plugin\tcommand\tdesc
+  local p cmd desc
+  while IFS=$'\t' read -r p cmd desc; do
+    printf "  %s%-34s%s %s\n" "$G" "$cmd" "$X" "$desc"
+  done
+}
+
+# --- config helpers ------------------------------------------
+config_init() {
+  [[ -f "$CONFIG_FILE" ]] && return
+  mkdir -p "$OMBD_CONFIG_DIR"
+  cp "$OMBD_DIR/config.example.zsh" "$CONFIG_FILE"
+}
+disabled_plugins() {
+  [[ -r "$CONFIG_FILE" ]] || return 0
+  ( source "$CONFIG_FILE" >/dev/null 2>&1; print -rl -- "${OMBD_DISABLED_PLUGINS[@]}" )
+}
+set_disabled() {   # args: new list
+  config_init
+  local tmp="$CONFIG_FILE.tmp.$$"
+  grep -v '^OMBD_DISABLED_PLUGINS=' "$CONFIG_FILE" > "$tmp"
+  print -r -- "OMBD_DISABLED_PLUGINS=(${(j: :)${(q)@}})" >> "$tmp"
+  mv -f "$tmp" "$CONFIG_FILE"
+}
+
+# --- .zshrc block helpers ------------------------------------
+# Remove our block (marker style, or the legacy v1 block) from .zshrc.
+zshrc_strip() {
+  local file="$1"
+  [[ -f "$file" ]] || return 0
+  local -a in out; in=("${(@f)$(<"$file")}")
+  local i=1 n=${#in} skip=0 line
+  local legacy='# oh-my-bd — git shortcuts, docker helpers, notes, CDC & more'
+  while (( i <= n )); do
+    line="${in[i]}"
+    if [[ "$line" == "$MARK_BEGIN" ]]; then skip=1; (( i++ )); continue; fi
+    if (( skip )); then [[ "$line" == "$MARK_END" ]] && skip=0; (( i++ )); continue; fi
+    # legacy: "# ====" / header / "# ====" / export / source / alias omb
+    if [[ "$line" == '# '=## && "${in[i+1]}" == "$legacy" ]]; then
+      (( i += 2 ))
+      [[ "${in[i]}" == '# '=## ]] && (( i++ ))
+      while (( i <= n )) && [[ "${in[i]}" == (export\ OMBD_DIR=*|*lib/core.zsh*|alias\ omb=*) ]]; do (( i++ )); done
+      [[ ${#out} -gt 0 && -z "${out[-1]}" ]] && out[-1]=()
+      continue
+    fi
+    if [[ "$line" == "$legacy" ]]; then (( i++ )); continue; fi
+    out+=("$line"); (( i++ ))
+  done
+  print -rl -- "${out[@]}" > "$file.omb.tmp" && mv -f "$file.omb.tmp" "$file"
+}
+zshrc_block() {
+  cat <<EOF
+$MARK_BEGIN
+export OMBD_DIR="\$HOME/.oh-my-bd"
+[[ ":\$PATH:" == *":\$HOME/.local/bin:"* ]] || export PATH="\$HOME/.local/bin:\$PATH"
+[[ -f "\$OMBD_DIR/lib/core.zsh" ]] && source "\$OMBD_DIR/lib/core.zsh"
+$MARK_END
+EOF
+}
+zshrc_has_legacy() { grep -qF 'alias omb="oh-my-bd"' "$ZSHRC" 2>/dev/null; }
+zshrc_has_block()  { grep -qxF "$MARK_BEGIN" "$ZSHRC" 2>/dev/null; }
+
+# Upgrade a v1 .zshrc block to the marker block (keeps a backup).
+zshrc_migrate() {
+  zshrc_has_legacy || return 0
+  cp "$ZSHRC" "$ZSHRC.omb-backup"
+  zshrc_strip "$ZSHRC"
+  { print; zshrc_block } >> "$ZSHRC"
+  print "  ${G}✓${X} Migrated your .zshrc block (backup: ${ZSHRC/#$HOME/~}.omb-backup)"
+}
+
+# ============================================================
+# Commands
+# ============================================================
+
+cmd_help() {
+  banner
+  print "${BO}USAGE${X}"
+  print "  ${C}omb${X}                     command palette (fuzzy search every command)"
+  print "  ${C}omb${X} <command> [args]"
+  print
+  print "${BO}COMMANDS${X}"
+  print "  ${G}list${X} [plugin]           plugins, or one plugin's commands"
+  print "  ${G}search${X} <term>           search commands"
+  print "  ${G}cheatsheet${X}              everything on one page"
+  print "  ${G}doctor${X}                  check your setup"
+  print "  ${G}update${X}                  update oh-my-bd"
+  print "  ${G}config${X}                  edit ${CONFIG_FILE/#$HOME/~}"
+  print "  ${G}enable${X}|${G}disable${X} <plugin>  turn plugins on/off"
+  print "  ${G}add${X}|${G}edit${X}|${G}remove${X} <name>  manage custom plugins"
+  print "  ${G}changelog${X}               recent changes"
+  print "  ${G}uninstall${X}               remove oh-my-bd"
+  print "  ${G}version${X}                 show version"
+  print
+  print "${D}Every command also has its own help: cdc help, note help, branch help, repo help, …${X}"
+}
+
+cmd_list() {
+  local -a disabled; disabled=(${(f)"$(disabled_plugins)"})
+  if [[ -n "$1" ]]; then
+    local rows; rows="$(registry | awk -F'\t' -v p="$1" '$1 == p')"
+    if [[ -z "$rows" ]]; then
+      if [[ -f "$OMBD_CUSTOM/$1.zsh" ]]; then
+        print "${BO}${C}$1${X} ${D}(custom: ${OMBD_CUSTOM/#$HOME/~}/$1.zsh)${X}"
+        grep -E '^(function )?[A-Za-z_][A-Za-z0-9_-]*( ?\(\))? ?\{|^alias ' "$OMBD_CUSTOM/$1.zsh" | sed 's/^/  /'
+        return
+      fi
+      print "${R}Unknown plugin:${X} $1"; print "Run ${C}omb list${X} to see all plugins."; return 1
+    fi
+    print; print "${BO}${C}${(U)1}${X}  ${D}$(plugin_desc "$1")${X}"; print
+    print -r -- "$rows" | print_rows; print
+    return
+  fi
+  banner
+  print "${BO}PLUGINS${X}"
+  local p state
+  for p in ${(u)${(f)"$(registry | cut -f1)"}}; do
+    [[ "$p" == omb ]] && continue
+    state=""; (( ${disabled[(Ie)$p]} )) && state=" ${Y}(disabled)${X}"
+    printf "  %s%-9s%s %s%s\n" "$C" "$p" "$X" "$(plugin_desc "$p")" "$state"
+    printf "            %s%s%s\n" "$D" "${(j:  :)${(@)${(f)"$(registry | awk -F'\t' -v p="$p" '$1 == p { print $2 }' | awk '{print $1}' | awk '!s[$0]++' | head -12)"}}}" "$X"
+  done
+  local -a custom; custom=($OMBD_CUSTOM/*.zsh(N:t:r))
+  if (( ${#custom} )); then
+    print; print "${BO}CUSTOM${X} ${D}(${OMBD_CUSTOM/#$HOME/~})${X}"
+    for p in "${custom[@]}"; do printf "  %s%s%s\n" "$C" "$p" "$X"; done
+  fi
+  print; print "Run ${C}omb list <plugin>${X} for details, or just ${C}omb${X} to search."
+}
+
+cmd_search() {
+  [[ -z "$1" ]] && die "Usage: omb search <term>"
+  local hits; hits="$(registry | grep -i -- "$*")"
+  [[ -z "$hits" ]] && { print "${Y}No matches for '$*'${X}"; return 1; }
+  print -r -- "$hits" | print_rows
+}
+
+cmd_cheatsheet() {
+  local p
+  for p in ${(u)${(f)"$(registry | cut -f1)"}}; do
+    print "${BO}${C}${(U)p}${X}"
+    registry | awk -F'\t' -v p="$p" '$1 == p' | print_rows
+    print
+  done
+}
+
+cmd_version() { print "oh-my-bd ${VERSION:-unknown}"; }
+
+cmd_changelog() {
+  [[ -f "$OMBD_DIR/CHANGELOG.md" ]] || die "No CHANGELOG.md"
+  if [[ -t 1 ]]; then
+    awk '/^## /{n++} n<=2' "$OMBD_DIR/CHANGELOG.md" | ${=PAGER:-less -R}
   else
-    omb "${RED}[ERROR]${RESET} install.sh not found or not executable."
-    return 1
+    awk '/^## /{n++} n<=2' "$OMBD_DIR/CHANGELOG.md"
   fi
 }
 
 cmd_update() {
-  if [[ ! -d "$OMBD_DIR/.git" ]]; then
-    omb "${RED}[ERROR]${RESET} Not a git repo. Run 'oh-my-bd install' first."
-    return 1
+  [[ -d "$OMBD_DIR/.git" ]] || die "Not a git checkout: $OMBD_DIR (reinstall with the installer)"
+  cd "$OMBD_DIR" || exit 1
+  local branch; branch="$(git rev-parse --abbrev-ref HEAD)"
+  [[ "$branch" == HEAD ]] && branch=main
+  if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+    print "${Y}You have local changes in $OMBD_DIR:${X}"
+    git status --short --untracked-files=no
+    print "Custom plugins belong in ${OMBD_CUSTOM/#$HOME/~} (omb add <name>) so updates never touch them."
+    ombd_confirm "Stash these changes and update?" || die "Update cancelled."
+    git stash push -m "omb update $(date +%F)" >/dev/null || die "Could not stash"
+    print "  ${G}✓${X} Stashed (restore with: cd $OMBD_DIR && git stash pop)"
   fi
-
-  local current remote
-  current="$(cd "$OMBD_DIR" && git rev-parse HEAD 2>/dev/null)"
-
-  (cd "$OMBD_DIR" && git fetch origin main --quiet 2>/dev/null) || {
-    omb "${RED}[ERROR]${RESET} Update failed. Check: cd $OMBD_DIR && git status"
-    return 1
-  }
-
-  (cd "$OMBD_DIR" && git reset --hard "origin/main" --quiet 2>/dev/null) || {
-    omb "${RED}[ERROR]${RESET} Update failed. Check: cd $OMBD_DIR && git status"
-    return 1
-  }
-
-  remote="$(cd "$OMBD_DIR" && git rev-parse HEAD)"
-  if [[ "$current" == "$remote" ]]; then
-    omb "${YELLOW}Already up to date.${RESET}"
+  local before; before="$(git rev-parse HEAD)"
+  print "Updating oh-my-bd…"
+  git fetch --quiet origin "$branch" || die "Fetch failed — are you online?"
+  if ! git merge --ff-only --quiet FETCH_HEAD 2>/dev/null; then
+    git reset --quiet --hard FETCH_HEAD || die "Update failed. Check: cd $OMBD_DIR && git status"
+  fi
+  mkdir -p "$OMBD_CONFIG_DIR" && print -r -- "$EPOCHSECONDS 0" > "$OMBD_CONFIG_DIR/update-check" 2>/dev/null
+  zshrc_migrate
+  if [[ "$before" == "$(git rev-parse HEAD)" ]]; then
+    print "${G}Already up to date${X} ($(<VERSION))."
   else
-    omb "${GREEN}Updated.${RESET} Run ${CYAN}exec zsh${RESET} to reload."
+    print "${G}Updated to $(<VERSION).${X} Changes:"
+    git log --oneline --no-decorate "$before"..HEAD | head -20 | sed 's/^/  /'
+    print "\nRun ${C}exec zsh${X} to reload."
   fi
+}
+
+cmd_config() {
+  config_init
+  ${=EDITOR:-vi} "$CONFIG_FILE"
+  zsh -n "$CONFIG_FILE" && print "Saved. Run ${C}exec zsh${X} to apply."
+}
+
+cmd_enable() {
+  [[ -z "$1" ]] && die "Usage: omb enable <plugin>"
+  local -a d; d=(${(f)"$(disabled_plugins)"})
+  (( ${d[(Ie)$1]} )) || { print "$1 is already enabled."; return; }
+  set_disabled "${(@)d:#$1}"
+  print "${G}Enabled${X} $1. Run ${C}exec zsh${X} to apply."
+}
+
+cmd_disable() {
+  [[ -z "$1" ]] && die "Usage: omb disable <plugin>"
+  [[ -f "$OMBD_DIR/plugins/$1.zsh" || -f "$OMBD_CUSTOM/$1.zsh" ]] || die "Unknown plugin: $1"
+  local -a d; d=(${(f)"$(disabled_plugins)"})
+  (( ${d[(Ie)$1]} )) && { print "$1 is already disabled."; return; }
+  set_disabled "${d[@]}" "$1"
+  print "${Y}Disabled${X} $1. Run ${C}exec zsh${X} to apply."
 }
 
 cmd_add() {
-  local name="${1:?Usage: oh-my-bd add <plugin-name>}"
-  local path="${OMBD_DIR}/plugins/${name}.zsh"
-  if [[ -f "$path" ]]; then
-    omb "${RED}[ERROR]${RESET} Plugin already exists: $name"
-    return 1
-  fi
-  cat > "$path" << EOF
+  local name="$1"
+  [[ "$name" == [A-Za-z0-9_-]## ]] || die "Usage: omb add <name>  (letters, digits, - and _)"
+  local file="$OMBD_CUSTOM/$name.zsh"
+  [[ -f "$file" ]] && die "Plugin already exists: $file"
+  mkdir -p "$OMBD_CUSTOM"
+  cat > "$file" <<EOF
 # ============================================================
-# oh-my-bd — ${name}.zsh — $(date '+%Y-%m-%d')
+# $name — custom oh-my-bd plugin (created $(date +%F))
+# Loaded automatically. Helpers available: ombd_has, ombd_confirm,
+# ombd_pick, ombd_open, ombd_color — see \$OMBD_DIR/lib/utils.zsh
 # ============================================================
 
+# function hello {
+#   print "hello from $name"
+# }
 EOF
-  omb "${GREEN}Created:${RESET} plugins/${name}.zsh"
-  omb "${GREEN}Edit:${RESET} $path"
+  print "${G}Created${X} ${file/#$HOME/~}"
+  [[ -t 1 ]] && ombd_confirm "Open it now?" y && ${=EDITOR:-vi} "$file"
+  print "Run ${C}exec zsh${X} to load it."
+}
+
+cmd_edit() {
+  local file="$OMBD_CUSTOM/$1.zsh"
+  [[ -f "$file" ]] || die "No custom plugin '$1' (omb add $1 to create)"
+  ${=EDITOR:-vi} "$file"
 }
 
 cmd_remove() {
-  local name="${1:?Usage: oh-my-bd remove <plugin-name>}"
-  local path="${OMBD_DIR}/plugins/${name}.zsh"
-  if [[ ! -f "$path" ]]; then
-    omb "${RED}[ERROR]${RESET} Plugin not found: $name"
-    return 1
-  fi
-  rm "$path"
-  omb "${GREEN}Removed:${RESET} $name"
+  local file="$OMBD_CUSTOM/$1.zsh"
+  [[ -n "$1" && -f "$file" ]] || die "No custom plugin '$1'. Built-in plugins can be turned off with: omb disable <name>"
+  ombd_confirm "Delete ${file/#$HOME/~}?" || return 1
+  rm -f -- "$file" && print "Removed $1."
 }
 
-show_help_compose() {
-  omb ""
-  omb "${BOLD}${CYAN}COMPOSE${RESET}"
-  omb "  ${DIM}Docker Compose shortcuts${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}dcup${RESET}      Start services (docker compose up -d)"
-  omb "  ${GREEN}dcupd${RESET}     Same as dcup"
-  omb "  ${GREEN}dcdown${RESET}    Stop services (docker compose down)"
-  omb "  ${GREEN}dcstop${RESET}    Stop services without removing volumes"
-  omb "  ${GREEN}dcstart${RESET}   Start existing services"
-  omb "  ${GREEN}dclogs${RESET}    View logs (docker compose logs -f)"
-  omb "  ${GREEN}dclogsf${RESET}   View logs for a specific service"
-  omb "  ${GREEN}dcexec${RESET}    Run command in running container"
-  omb "  ${GREEN}dcps${RESET}      Show running containers"
-  omb ""
-}
-
-show_help_docker() {
-  omb ""
-  omb "${BOLD}${CYAN}DOCKER${RESET}"
-  omb "  ${DIM}Docker context & cleanup helpers${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}ctx${RESET}           Show current docker context"
-  omb "  ${GREEN}ctx ls${RESET}        List all docker contexts"
-  omb "  ${GREEN}ctx <name>${RESET}    Switch to context <name>"
-  omb "  ${GREEN}clean-containers${RESET}   Remove stopped containers"
-  omb "  ${GREEN}clean-images${RESET}       Remove dangling images"
-  omb "  ${GREEN}clean-all${RESET}          Remove containers, images, and volumes"
-  omb ""
-}
-
-show_help_git() {
-  omb ""
-  omb "${BOLD}${CYAN}GIT${RESET}"
-  omb "  ${DIM}Git shortcuts for faster workflow${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}status${RESET}    git status -sb"
-  omb "  ${GREEN}add${RESET}      git add"
-  omb "  ${GREEN}commit${RESET}    git commit (opens editor)"
-  omb "  ${GREEN}switch${RESET}    git switch (interactive)"
-  omb "  ${GREEN}create${RESET}    git switch -c (new branch)"
-  omb "  ${GREEN}sync${RESET}      git pull --rebase && git push"
-  omb "  ${GREEN}fetch${RESET}     git fetch --all"
-  omb "  ${GREEN}push${RESET}      git push"
-  omb "  ${GREEN}pull${RESET}      git pull --rebase"
-  omb "  ${GREEN}log${RESET}       git log --oneline --graph"
-  omb "  ${GREEN}undo${RESET}      git reset --soft HEAD~1"
-  omb "  ${GREEN}discard${RESET}    git reset --hard HEAD"
-  omb "  ${GREEN}stash${RESET}     git stash"
-  omb "  ${GREEN}unstash${RESET}    git stash pop"
-  omb "  ${GREEN}branches${RESET}   List branches (fzf)"
-  omb "  ${GREEN}branch${RESET}    Branch manager"
-  omb "  ${GREEN}branch ls${RESET}  List all branches"
-  omb "  ${GREEN}branch new${RESET} Create new branch"
-  omb "  ${GREEN}repo${RESET}      Repo utilities"
-  omb "  ${GREEN}root${RESET}      Jump to git root"
-  omb "  ${GREEN}changed${RESET}   Show changed files"
-  omb "  ${GREEN}work${RESET}     Status summary"
-  omb "  ${GREEN}recent${RESET}    Recent cdc targets"
-  omb "  ${GREEN}prune${RESET}    Prune gone branches"
-  omb "  ${GREEN}publish${RESET}  Push + set upstream"
-  omb "  ${GREEN}browse${RESET}    Open repo pages"
-  omb "  ${GREEN}tag${RESET}       Create git tag"
-  omb "  ${GREEN}tags${RESET}      List git tags"
-  omb "  ${GREEN}release${RESET}    Create release (patch|minor|major)"
-  omb ""
-}
-
-show_help_notes() {
-  omb ""
-  omb "${BOLD}${CYAN}NOTES${RESET}"
-  omb "  ${DIM}Project-local notes (stored in ./notes.md)${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}note${RESET}         Open notes.md in editor"
-  omb "  ${GREEN}note open${RESET}    Same as above"
-  omb "  ${GREEN}notes${RESET}        Cat notes.md"
-  omb "  ${GREEN}note <word>${RESET}  Append with timestamp tag"
-  omb "  ${GREEN}note wip${RESET}     Mark current task as WIP"
-  omb "  ${GREEN}note rm${RESET}      Remove last line"
-  omb "  ${GREEN}note clear${RESET}   Clear all notes"
-  omb "  ${GREEN}note task${RESET}    Add a task"
-  omb "  ${GREEN}note ctx${RESET}     Add context note"
-  omb "  ${GREEN}note bug${RESET}     Log a bug"
-  omb "  ${GREEN}note idea${RESET}    Record an idea"
-  omb "  ${GREEN}note code${RESET}    Save code snippet"
-  omb ""
-}
-
-show_help_qol() {
-  omb ""
-  omb "${BOLD}${CYAN}QOL${RESET}"
-  omb "  ${DIM}Quality of life shortcuts${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}cdc add <name> <path>${RESET}   Add directory bookmark"
-  omb "  ${GREEN}cdc <name>${RESET}              Jump to bookmarked directory"
-  omb "  ${GREEN}cdc rm <name>${RESET}           Remove bookmark"
-  omb "  ${GREEN}cdc${RESET}                     List all bookmarks"
-  omb "  ${GREEN}kill-port <port>${RESET}        Kill process on port"
-  omb "  ${GREEN}gopen${RESET}                   Open GitHub repo in browser"
-  omb "  ${GREEN}tre${RESET}                     Tree view with hidden files"
-  omb ""
-}
-
-show_help_system() {
-  omb ""
-  omb "${BOLD}${CYAN}SYSTEM${RESET}"
-  omb "  ${DIM}Cross-platform system utilities${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}ll${RESET}      ls -la (list all files)"
-  omb "  ${GREEN}la${RESET}      ls -A (list except . and ..)"
-  omb "  ${GREEN}l${RESET}       ls -CF"
-  omb "  ${GREEN}dir${RESET}     real ls output (bypass wrappers)"
-  omb "  ${GREEN}psg${RESET}     ps aux | grep (process search)"
-  omb "  ${GREEN}myip${RESET}    Show external IP"
-  omb "  ${GREEN}copy${RESET}    Copy to clipboard (pbcopy)"
-  omb "  ${GREEN}paste${RESET}   Paste from clipboard (pbpaste)"
-  omb ""
-}
-
-show_help_fzf() {
-  omb ""
-  omb "${BOLD}${CYAN}FZF${RESET}"
-  omb "  ${DIM}Fuzzy finder integration${RESET}"
-  omb ""
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${GREEN}Ctrl+R${RESET}   Search command history"
-  omb "  ${GREEN}Ctrl+F${RESET}   Search files in current dir"
-  omb "  ${GREEN}Alt+C${RESET}    Change directory (fuzzy)"
-  omb "  ${GREEN}vf${RESET}       Open file with fzf"
-  omb "  ${GREEN}fcd${RESET}      Fuzzy change directory"
-  omb ""
-}
-
-cmd_list() {
-  if [[ -n "$1" ]]; then
-    case "$1" in
-      compose)  show_help_compose ;;
-      docker)   show_help_docker ;;
-      git)      show_help_git ;;
-      notes)    show_help_notes ;;
-      qol)      show_help_qol ;;
-      system)   show_help_system ;;
-      fzf)      show_help_fzf ;;
-      *)
-        omb "${RED}Unknown plugin:${RESET} $1"
-        omb "Run ${CYAN}omb list${RESET} to see all plugins."
-        return 1
-        ;;
-    esac
-    return
-  fi
-
-  omb_banner
-  omb "${BOLD}${GREEN}plugins${RESET}"
-  omb ""
-
-  omb "  ${CYAN}compose${RESET}   Docker Compose shortcuts"
-  omb "            ${DIM}-> dcup  dcupd  dcdown  dcstop  dcstart  dclogs  dcexec  dcps${RESET}"
-  omb ""
-
-  omb "  ${CYAN}docker${RESET}    Docker context & cleanup"
-  omb "            ${DIM}-> ctx  ctx ls  ctx use <name>  clean-containers  clean-images  clean-all${RESET}"
-  omb ""
-
-  omb "  ${CYAN}fzf${RESET}       Fuzzy finder integration"
-  omb "            ${DIM}-> Ctrl+R  Ctrl+F  Alt+C  vf  fcd${RESET}"
-  omb ""
-
-  omb "  ${CYAN}git${RESET}       Git shortcuts"
-  omb "            ${DIM}-> status  add  commit  switch  create  sync  fetch  push  pull  log${RESET}"
-  omb ""
-
-  omb "  ${CYAN}notes${RESET}     Project-local notes"
-  omb "            ${DIM}-> note  notes  note wip  note rm  noteopen${RESET}"
-  omb "            ${DIM}-> note task/ctx/bug/idea/code${RESET}"
-  omb ""
-
-  omb "  ${CYAN}qol${RESET}       Quality of life"
-  omb "            ${DIM}-> cdc  kill-port  gopen  tre  tf${RESET}"
-  omb ""
-
-  omb "  ${CYAN}system${RESET}    System utilities"
-  omb "            ${DIM}-> ll  la  l  psg  myip  copy  paste${RESET}"
-  omb ""
-
-  omb "${DIM}─────────────────────────────────────────${RESET}"
-  omb "${DIM}CLI:${RESET}  install  update  add  remove  list  uninstall  version"
-  omb ""
-  omb "Run ${CYAN}omb list <plugin>${RESET} for detailed help."
-  omb ""
+cmd_install() {
+  [[ -r "$OMBD_DIR/install.sh" ]] || die "install.sh not found"
+  sh "$OMBD_DIR/install.sh" "$@"
 }
 
 cmd_uninstall() {
-  if [[ ! -d "$OMBD_DIR" ]]; then
-    omb "${RED}[ERROR]${RESET} Not installed."
-    return 1
+  print "${Y}This removes oh-my-bd from your shell and deletes $OMBD_DIR.${X}"
+  ombd_confirm "Continue?" || { print "Cancelled."; return; }
+
+  if [[ -f "$ZSHRC" ]] && { zshrc_has_block || zshrc_has_legacy; }; then
+    cp "$ZSHRC" "$ZSHRC.omb-backup"
+    zshrc_strip "$ZSHRC"
+    print "  ${G}✓${X} Removed from ${ZSHRC/#$HOME/~} (backup: .zshrc.omb-backup)"
   fi
-
-  omb "${YELLOW}WARNING:${RESET} This will remove oh-my-bd completely."
-  read "confirm?Remove oh-my-bd? [y/N] "
-
-  if [[ "$confirm" != "y" && "$confirm" != "Y" ]]; then
-    omb "Cancelled."
-    return
+  local fish="${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish"
+  if [[ -f "$fish" ]] && grep -q 'oh-my-bd' "$fish"; then
+    grep -v -e 'oh-my-bd.fish' -e '^# oh-my-bd Fish integration$' "$fish" > "$fish.omb.tmp" && mv -f "$fish.omb.tmp" "$fish"
+    print "  ${G}✓${X} Removed from fish config"
   fi
-
-  if grep -q "oh-my-bd" "${HOME}/.zshrc" 2>/dev/null; then
-    sed -i '' '/^# ===.*oh-my-bd/,/^fi$/d' "${HOME}/.zshrc"
-    sed -i '' '/^export PATH=".*\.local\/bin/d' "${HOME}/.zshrc"
-    omb "  ${GREEN}[OK]${RESET} Removed from .zshrc"
+  local l
+  for l in "$HOME/.local/bin/oh-my-bd" "$HOME/.local/bin/omb"; do
+    [[ -L "$l" ]] && rm -f "$l" && print "  ${G}✓${X} Removed ${l/#$HOME/~}"
+  done
+  if [[ -d "$OMBD_CONFIG_DIR" || -f "$HOME/.cdc_dirs" ]]; then
+    if ombd_confirm "Also delete your config, custom plugins and bookmarks?"; then
+      rm -rf -- "$OMBD_CONFIG_DIR" "$HOME/.cdc_dirs" && print "  ${G}✓${X} Removed config and bookmarks"
+    else
+      print "  ${D}Kept ${OMBD_CONFIG_DIR/#$HOME/~} and ~/.cdc_dirs${X}"
+    fi
   fi
-
-  if [[ -L "${HOME}/.local/bin/oh-my-bd" ]]; then
-    rm -f "${HOME}/.local/bin/oh-my-bd"
-    omb "  ${GREEN}[OK]${RESET} Removed CLI symlink"
-  fi
-
-  if [[ -d "$OMBD_DIR" ]]; then
-    rm -rf "$OMBD_DIR"
-    omb "  ${GREEN}[OK]${RESET} Removed $OMBD_DIR"
-  fi
-
-  omb ""
-  omb "  ${GREEN}Uninstalled.${RESET} Restart your shell."
-  omb ""
+  rm -f "$HOME/.ombd_last_check"
+  [[ -d "$OMBD_DIR" ]] && rm -rf -- "$OMBD_DIR" && print "  ${G}✓${X} Removed ${OMBD_DIR/#$HOME/~}"
+  print "\n${G}Uninstalled.${X} Open a new terminal."
 }
 
 cmd_doctor() {
-  local ok=0
-  local warn=0
-  
-  omb_banner
-  omb "${BOLD}oh-my-bd doctor${RESET}"
-  omb ""
-  
-  omb "${BOLD}Dependencies${RESET}"
-  
-  command -v zsh >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} zsh" || { omb "  ${RED}[FAIL]${RESET} zsh"; ((ok++)); }
-  command -v git >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} git" || { omb "  ${RED}[FAIL]${RESET} git"; ((ok++)); }
-  command -v fzf >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} fzf (optional)" || { omb "  ${YELLOW}[WARN]${RESET} fzf (optional - fzf pickers disabled)"; ((warn++)); }
-  command -v docker >/dev/null 2>&1 && omb "  ${GREEN}[OK]${RESET} docker (optional)" || omb "  ${YELLOW}[WARN]${RESET} docker (optional)"
-  
-  omb ""
-  omb "${BOLD}Installation${RESET}"
-  
-  if [[ -d "$OMBD_DIR" ]]; then
-    omb "  ${GREEN}[OK]${RESET} OMBD_DIR: $OMBD_DIR"
-  else
-    omb "  ${RED}[FAIL]${RESET} OMBD_DIR not found: $OMBD_DIR"
-    ((ok++))
-  fi
-  
-  if [[ -f "$OMBD_DIR/lib/core.zsh" ]]; then
-    omb "  ${GREEN}[OK]${RESET} core.zsh found"
-  else
-    omb "  ${RED}[FAIL]${RESET} core.zsh not found"
-    ((ok++))
-  fi
-  
-  if grep -q "oh-my-bd" "${HOME}/.zshrc" 2>/dev/null; then
-    omb "  ${GREEN}[OK]${RESET} .zshrc configured"
-  else
-    omb "  ${YELLOW}[WARN]${RESET} oh-my-bd not in .zshrc"
-    ((warn++))
-  fi
-  
-  omb ""
-  omb "${BOLD}Duplicate Commands${RESET}"
-  
-  local -A counts
-  local cmd
-  for cmd in discard; do
-    local paths
-    paths="$(which -a "$cmd" 2>/dev/null | wc -l | tr -d ' ')"
-    if [[ "$paths" -gt 1 ]]; then
-      omb "  ${YELLOW}[WARN]${RESET} '$cmd' defined in multiple places ($paths)"
-      ((warn++))
-    else
-      omb "  ${GREEN}[OK]${RESET} $cmd"
-    fi
+  local fails=0 warns=0
+  ok()   { print "  ${G}✓${X} $*"; }
+  warn() { print "  ${Y}!${X} $*"; (( warns++ )); }
+  fail() { print "  ${R}✗${X} $*"; (( fails++ )); }
+
+  banner
+  print "${BO}oh-my-bd ${VERSION}${X}  ${D}${OMBD_DIR/#$HOME/~}${X}\n"
+
+  print "${BO}Required${X}"
+  ombd_has zsh && ok "zsh $ZSH_VERSION" || fail "zsh not found"
+  ombd_has git && ok "git $(git --version | awk '{print $3}')" || fail "git not found"
+
+  print "\n${BO}Optional${X}"
+  if ombd_has fzf; then
+    local v="${$(fzf --version)%% *}"
+    if [[ "${v%%.*}" -gt 0 || "${${v#*.}%%.*}" -ge 48 ]]; then ok "fzf $v"
+    else warn "fzf $v is old — keybindings come from your distro's files; 0.48+ recommended"; fi
+  else warn "fzf not installed — pickers fall back to numbered menus"; fi
+  local t
+  for t in fd bat docker lazydocker tree thefuck lsof; do
+    ombd_has $t && ok "$t" || print "  ${D}- $t (optional)${X}"
   done
-  
-  omb ""
-  omb "${BOLD}Plugins${RESET}"
-  
-  local -a plugins=(git docker notes qol system compose fzf)
-  for plugin in $plugins; do
-    if [[ -f "$OMBD_DIR/plugins/${plugin}.zsh" ]]; then
-      omb "  ${GREEN}[OK]${RESET} ${plugin}.zsh"
-    else
-      omb "  ${DIM}[--]${RESET} ${plugin}.zsh (not loaded)"
-    fi
+
+  print "\n${BO}Installation${X}"
+  [[ -f "$OMBD_DIR/lib/core.zsh" ]] && ok "core found" || fail "core.zsh missing in $OMBD_DIR"
+  if zshrc_has_block; then ok ".zshrc configured"
+  elif zshrc_has_legacy; then warn ".zshrc uses the old v1 block — run ${C}omb update${X} to migrate (it shadows the palette)"
+  else fail "oh-my-bd is not sourced from ${ZSHRC/#$HOME/~} — run the installer"; fi
+  [[ ":$PATH:" == *":$HOME/.local/bin:"* ]] && ok "~/.local/bin is on PATH" || warn "~/.local/bin is not on PATH (omb CLI symlinks live there)"
+  if [[ -f "$CONFIG_FILE" ]]; then
+    zsh -n "$CONFIG_FILE" 2>/dev/null && ok "config ${CONFIG_FILE/#$HOME/~}" || fail "syntax error in ${CONFIG_FILE/#$HOME/~}"
+  else print "  ${D}- no config file (omb config to create)${X}"; fi
+  local f
+  for f in "$OMBD_DIR"/plugins/*.zsh "$OMBD_CUSTOM"/*.zsh(N); do
+    zsh -n "$f" 2>/dev/null || fail "syntax error in ${f/#$HOME/~}"
   done
-  
-  omb ""
-  if (( ok > 0 )); then
-    omb "${RED}Issues: $ok failures${RESET}"
-  elif (( warn > 0 )); then
-    omb "${YELLOW}Warnings: $warn${RESET}"
-  else
-    omb "${GREEN}All checks passed${RESET}"
-  fi
-  omb ""
+
+  print "\n${BO}Load test${X}"
+  local out
+  out="$(OMBD_SKIP_CHECK=1 OMBD_SILENT=0 zsh -ic 'source "$OMBD_DIR/lib/core.zsh"' 2>&1 >/dev/null </dev/null |
+    grep -v -e '^\[oh-my-bd\] .env' -e 'Untrusted .env' -e 'sets:' -e 'Load it' )"
+  [[ -z "$out" ]] && ok "loads cleanly" || { fail "errors while loading:"; print -r -- "$out" | sed 's/^/      /' | head -10; }
+
+  local -a d; d=(${(f)"$(disabled_plugins)"})
+  (( ${#d} )) && print "\n${D}Disabled plugins: ${d[*]}${X}"
+
+  print
+  if (( fails )); then print "${R}$fails problem(s), $warns warning(s)${X}"; return 1
+  elif (( warns )); then print "${Y}$warns warning(s)${X}"
+  else print "${G}All good.${X}"; fi
 }
 
-cmd_search() {
-  local query="${1:-}"
-  if [[ -z "$query" ]]; then
-    omb "Usage: omb search <term>"
-    return 1
-  fi
-  
-  omb_banner
-  omb "${BOLD}Results for:${RESET} $query"
-  omb ""
-  
-  local -A results
-  local cmd desc found=0
-  
-  results[status]="git status -sb"
-  results[add]="git add"
-  results[commit]="git commit"
-  results[switch]="git switch (fzf picker)"
-  results[create]="git switch -c"
-  results[sync]="git pull --rebase && git push"
-  results[fetch]="git fetch --all"
-  results[push]="git push"
-  results[pull]="git pull --rebase"
-  results[log]="git log --oneline --graph"
-  results[undo]="git reset --soft HEAD~1"
-  results[discard]="git reset --hard"
-  results[stash]="git stash"
-  results[branches]="List branches (fzf)"
-  results[branch]="Branch manager"
-  results[branch_ls]="List all branches"
-  results[branch_new]="Create new branch"
-  results[repo]="Repo utilities"
-  results[repo_open]="Open repo in browser"
-  results[repo_root]="Jump to git root"
-  results[repo_pr]="Open PR page"
-  results[work]="Status summary"
-  results[recent]="Recent cdc targets"
-  results[prune]="Prune gone branches"
-  results[publish]="Push + set upstream"
-  results[browse]="Open repo pages"
-  results[root]="Jump to git root"
-  results[changed]="Show changed files"
-  results[cdc]="Jump to project (fzf)"
-  results[cdc_add]="Add bookmark"
-  results[cdc_rm]="Remove bookmark"
-  results[note]="Add project note"
-  results[notes]="View notes (fzf)"
-  results[kill_port]="Kill process on port"
-  results[gopen]="Open in browser"
-  results[tre]="Tree view"]
-  results[ll]="ls -alFh"
-  results[la]="ls -A"
-  results[l]="ls -CF"
-  results[psg]="ps aux | grep"]
-  results[myip]="Show IP address"
-  results[copy]="Copy to clipboard"
-  results[paste]="Paste from clipboard"
-  results[dcup]="docker compose up"
-  results[dcdown]="docker compose down"
-  results[dcstop]="docker compose stop"
-  results[dcstart]="docker compose start"
-  results[dclogs]="docker compose logs"
-  results[dcexec]="docker compose exec"
-  results[dps]="docker ps"
-  results[dpsa]="docker ps -a"]
-  results[clean_containers]="docker container prune"
-  results[clean_images]="docker image prune"
-  results[context]="Docker context"
-  results[lz]="lazydocker"
-  
-  for cmd desc in ${(kv)results}; do
-    if [[ "${cmd}${desc}" =~ $query ]]; then
-      omb "  ${CYAN}${cmd}${RESET}  ${desc}"
-      found=1
-    fi
-  done
-  
-  if (( !found )); then
-    omb "${YELLOW}No matches${RESET}"
-  fi
-  omb ""
-}
-
-cmd_cheatsheet() {
-  omb_banner
-  omb "${BOLD}oh-my-bd — Top Commands${RESET}"
-  omb ""
-  
-  omb "${BOLD}Git${RESET}"
-  omb "  status  add  commit  switch  create  sync  push  pull  log"
-  omb "  undo  discard  stash  branches  branch  repo  root  changed"
-  omb ""
-  
-  omb "${BOLD}CDC (projects)${RESET}"
-  omb "  cdc add <name> <path>   Add bookmark"
-  omb "  cdc <name>           Jump to project"
-  omb "  cdc                 Interactive picker"
-  omb "  cdc rm <name>        Remove"
-  omb ""
-  
-  omb "${BOLD}Notes${RESET}"
-  omb "  note task <text>   Add task"
-  omb "  note bug <text>    Log bug"
-  omb "  note idea <text>   Record idea"
-  omb "  notes             View notes"
-  omb ""
-  
-  omb "${BOLD}Docker${RESET}"
-  omb "  dcup  dcdown  dcstop  dcstart  dclogs  dcexec <svc>"
-  omb "  dps  dpsa  clean-containers  clean-images"
-  omb ""
-  
-  omb "${BOLD}System${RESET}"
-  omb "  ll  la  l  psg <name>  myip  copy  paste"
-  omb "  kill-port <port>  gopen <url>  tre"
-  omb ""
-  
-  omb "${DIM}Run '${CYAN}omb list${DIM}' for full help.${RESET}"
-  omb ""
-}
-
-cmd_version() {
-  omb "${GREEN}oh-my-bd v1.0.0${RESET}"
-}
-
-cmd_help() {
-  local plugin="${1:-}"
-  
-  if [[ -n "$plugin" ]]; then
-    cmd_list "$plugin"
-    return
-  fi
-
-  omb_banner
-  omb "${BOLD}USAGE${RESET}"
-  omb "  ${CYAN}omb${RESET} <command> [args]"
-  omb ""
-  omb "${BOLD}CLI COMMANDS${RESET}"
-  omb "  ${GREEN}install${RESET}         Run the installer"
-  omb "  ${GREEN}update${RESET}          Pull latest changes from git"
-  omb "  ${GREEN}add <name>${RESET}      Create a new plugin"
-  omb "  ${GREEN}remove <name>${RESET}   Remove a plugin"
-  omb "  ${GREEN}list [plugin]${RESET}   List plugins (or show plugin help)"
-  omb "  ${GREEN}uninstall${RESET}       Remove oh-my-bd completely"
-  omb "  ${GREEN}doctor${RESET}         Run diagnostics"
-  omb "  ${GREEN}search <term>${RESET}   Search commands"
-  omb "  ${GREEN}cheatsheet${RESET}       One-page command reference"
-  omb "  ${GREEN}version${RESET}         Show version"
-  omb ""
-  omb "${DIM}EXAMPLES${RESET}"
-  omb "  ${CYAN}omb list${RESET}          List all plugins"
-  omb "  ${CYAN}omb list git${RESET}      Show git plugin help"
-  omb "  ${CYAN}omb update${RESET}        Pull latest changes"
-  omb ""
-}
-
-CMD="${1:-}"
-if [[ -z "$CMD" || "$CMD" == "help" || "$CMD" == "--help" || "$CMD" == "-h" ]]; then
-  cmd_help
-else
-  shift 2>/dev/null
-  case "$CMD" in
-    install)    cmd_install "$@" ;;
-    update)     cmd_update "$@" ;;
-    add)        cmd_add "$@" ;;
-    remove)     cmd_remove "$@" ;;
-    list)       cmd_list "$@" ;;
-    uninstall)  cmd_uninstall "$@" ;;
-    doctor)    cmd_doctor "$@" ;;
-    search)    cmd_search "$@" ;;
-    cheatsheet) cmd_cheatsheet "$@" ;;
-    version)   cmd_version "$@" ;;
-    *)         omb "${RED}[ERROR]${RESET} Unknown command: $CMD"; omb "Run ${CYAN}omb help${RESET} for usage."; return 1 ;;
-  esac
-fi
+# ============================================================
+case "${1:-help}" in
+  help|-h|--help|palette|p) cmd_help ;;
+  list|ls)       shift; cmd_list "$@" ;;
+  search|s)      shift; cmd_search "$@" ;;
+  cheatsheet|cs) cmd_cheatsheet ;;
+  doctor)        cmd_doctor ;;
+  update|upgrade) cmd_update ;;
+  config)        cmd_config ;;
+  enable)        shift; cmd_enable "$@" ;;
+  disable)       shift; cmd_disable "$@" ;;
+  add|new)       shift; cmd_add "$@" ;;
+  edit)          shift; cmd_edit "$@" ;;
+  remove|rm)     shift; cmd_remove "$@" ;;
+  install)       shift; cmd_install "$@" ;;
+  uninstall)     cmd_uninstall ;;
+  changelog)     cmd_changelog ;;
+  migrate-zshrc) zshrc_migrate ;;   # internal, used by install.sh
+  version|-v|--version) cmd_version ;;
+  *) print -u2 "${R}Unknown command:${X} $1"; print -u2 "Run ${C}omb help${X}."; exit 1 ;;
+esac

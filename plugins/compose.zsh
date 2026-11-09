@@ -2,7 +2,7 @@
 # oh-my-bd — compose.zsh — Docker Compose shortcuts
 # ============================================================
 
-command -v docker >/dev/null 2>&1 || return
+ombd_has docker || return 0
 
 alias dcup='docker compose up'
 alias dcupd='docker compose up -d'
@@ -12,42 +12,46 @@ alias dcstart='docker compose start'
 alias dcrestart='docker compose restart'
 alias dcbuild='docker compose build'
 alias dclogs='docker compose logs'
-alias dclogsf='docker compose logs -f'
+alias dclogsf='docker compose logs -f --tail=200'
+alias dcln='docker compose logs --tail=100'
 alias dcps='docker compose ps'
-alias dcexec='docker compose exec'
 alias dcrun='docker compose run --rm'
 alias dcrm='docker compose rm'
 alias dcpull='docker compose pull'
 alias dcconfig='docker compose config'
-alias dcln='docker compose logs --tail=100'
 
-dcl() {
-  if [[ "$1" == "help" ]]; then
-    cat << 'EOF'
-dcl — Docker Compose shortcuts
+function _ombd_compose_services { docker compose config --services 2>/dev/null; }
 
-Aliases:
-  dcup       docker compose up
-  dcupd      docker compose up -d (detached)
-  dcdown     docker compose down
-  dcstop     docker compose stop
-  dcstart    docker compose start
-  dcrestart docker compose restart
-  dcbuild    docker compose build
-  dclogs     docker compose logs
-  dclogsf    docker compose logs -f (follow)
-  dcp        docker compose ps
-  dcexec     docker compose exec
-  dcrun      docker compose run --rm
-  dcrm       docker compose rm
-  dcpull     docker compose pull
-  dcconfig   docker compose config
-  dcln       docker compose logs (last 100 lines)
+# dcexec [service] [cmd...] — exec into a service (picker, default shell)
+function dcexec {
+  local svc="$1"
+  if [[ -z "$svc" ]]; then
+    svc="$(_ombd_compose_services | ombd_pick 'Service:')" || return 0
+  else
+    shift
+  fi
+  if (( $# )); then
+    docker compose exec "$svc" "$@"
+  else
+    docker compose exec "$svc" sh -c 'command -v bash >/dev/null && exec bash || exec sh'
+  fi
+}
 
-Functions:
-  dcl help   Show this help
+function dcl {
+  if [[ "$1" == help ]]; then
+    cat <<'EOF'
+Docker Compose shortcuts
+
+  dcup / dcupd        up / up -d             dcdown     down
+  dcstop / dcstart    stop / start           dcrestart  restart
+  dcbuild             build                  dcpull     pull
+  dclogs / dclogsf    logs / follow          dcln       last 100 lines
+  dcps                ps                     dcrm       rm
+  dcrun <svc> ...     run --rm               dcconfig   config
+  dcexec [svc] [cmd]  exec (picker + shell if omitted)
+  dcl [svc]           follow logs (alias of dclogsf)
 EOF
     return
   fi
-  dclogs "$@"
+  docker compose logs -f --tail=200 "$@"
 }

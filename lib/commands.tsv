@@ -1,0 +1,98 @@
+# plugin	command	description   (tab-separated; drives omb list/search/cheatsheet/palette)
+git	status	Short git status
+git	add [files]	Stage all, or the given files
+git	add -i	Pick files to stage (diff preview)
+git	commit [message]	Commit (stages all if nothing staged; no message opens editor)
+git	switch [branch]	Switch branch — picker with log preview; Tab creates a branch
+git	create <branch>	Create and switch to a new branch
+git	branches	Pick a branch and switch
+git	branch [ls|new|rm|rename|track]	Branch manager
+git	gsync	Pull --rebase, then push
+git	fetch	Fetch all remotes and prune
+git	pull	Pull --rebase --autostash
+git	push	Push
+git	publish	Push, setting upstream on first push
+git	log	Pretty graph log (system log outside a repo)
+git	changed	Changed files — pick to open in editor
+git	undo	Undo last commit, keep changes staged
+git	discard [files]	Discard changes to files, or ALL changes (asks first)
+git	stash	git stash
+git	unstash [n]	Pop a stash — picker with diff preview
+git	update	Rebase current branch onto the remote default branch
+git	rewrite	Push --force-with-lease
+git	prune	Fetch, then pick gone branches to delete
+git	root	cd to the repository root
+git	repo [root|open|name|main|url|pr|issues]	Repository info and links
+git	browse [pr|issues|actions|releases|file <path>]	Open repository pages in the browser
+git	work	Branch, dirty state, docker context and .env at a glance
+git	tags	List tags with messages
+git	tag <name> [message]	Create an annotated tag
+git	release [patch|minor|major]	Bump the latest vX.Y.Z tag
+docker	context [ls|use <name>]	Docker context manager (alias: ctx)
+docker	dps	Running containers (compact table)
+docker	dpsa	All containers
+docker	dsh [container]	Shell into a container (picker)
+docker	dlogs [container]	Follow container logs (picker)
+docker	clean-containers	Remove stopped containers
+docker	clean-images	Remove dangling images
+docker	clean-all	docker system prune -a (asks)
+docker	lz	lazydocker
+compose	dcup	docker compose up
+compose	dcupd	docker compose up -d
+compose	dcdown	docker compose down
+compose	dcstop	docker compose stop
+compose	dcstart	docker compose start
+compose	dcrestart	docker compose restart
+compose	dcbuild	docker compose build
+compose	dcpull	docker compose pull
+compose	dcps	docker compose ps
+compose	dclogs	docker compose logs
+compose	dclogsf	Follow compose logs
+compose	dcl [service]	Follow compose logs (dcl help for all)
+compose	dcexec [service] [cmd]	Exec into a service (picker, opens a shell)
+compose	dcrun <service> <cmd>	docker compose run --rm
+qol	cdc [name]	Jump to a project bookmark (picker if no name)
+qol	cdc add [name] [path]	Bookmark a directory (defaults: folder name, cwd)
+qol	cdc rm [name]	Remove a bookmark
+qol	cdc ls	List bookmarks
+qol	cdc clean	Drop bookmarks whose directory is gone
+qol	recent	Most recently used bookmarks
+qol	mkcd <dir>	mkdir -p and cd
+qol	kill-port [port]	Stop the process on a port (picker if no port)
+qol	gopen <url|file>	Open in browser / default app
+qol	extract <archive>	Unpack any common archive
+qol	serve [port]	Serve the current directory over HTTP
+qol	tre	Tree view without node_modules/.git noise
+qol	tf	Fix the last command (thefuck)
+notes	note	Open ./notes.md in your editor
+notes	note task <text>	Add a task
+notes	note ctx <text>	Add context
+notes	note bug <text>	Log a bug
+notes	note idea <text>	Record an idea
+notes	note dec <text>	Record a decision
+notes	note code <text>	Save a snippet
+notes	note done [id]	Mark a task done (picker)
+notes	note wip	Open tasks
+notes	note rm [id]	Remove an entry (picker)
+notes	notes	Browse/search notes
+autoenv	autoenv [allow|deny|reload]	Trust and load ./.env (asks before first load)
+system	ll	ls -alFh
+system	la	ls -A
+system	psg <pattern>	Search processes
+system	top	btop/htop if installed
+system	myip	Public and local IP
+system	ports	Listening ports
+system	copy [file]	Copy stdin/file to clipboard
+system	paste	Print clipboard
+system	sysinfo	System summary
+system	cx <file>	chmod +x
+fzf	Ctrl+R	Fuzzy history search
+fzf	Ctrl+F	Fuzzy file search (also Ctrl+T)
+fzf	Alt+C	Fuzzy cd
+fzf	vf [query]	Pick files and open in editor
+fzf	fcd [query]	Fuzzy cd into a subdirectory
+fzf	fh [query]	Pick from history onto the prompt
+omb	omb	Command palette (also Ctrl+X Ctrl+O)
+omb	omb doctor	Diagnose your setup
+omb	omb update	Update oh-my-bd
+omb	omb config	Edit your config

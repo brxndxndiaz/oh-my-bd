@@ -1,136 +1,57 @@
-name: Test Plugins
+name: Test
 
 on:
   push:
     branches: [main]
-    tags:
-      - 'v*'
+    tags: ['v*']
   pull_request:
-    branches: [main]
 
 jobs:
-  lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install ShellCheck
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
-
-      - name: Run ShellCheck
-        run: |
-          shellcheck plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh || true
-
   test:
+    name: Test (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - shell: zsh
-            name: ZSH
-          - shell: bash
-            name: BASH
-          - shell: dash
-            name: DASH
-
-    runs-on: ubuntu-latest
-    name: Test on ${{ matrix.name }}
-
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y ${{ matrix.shell }} git curl fzf tree
+      - name: Install dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq zsh dash fish fzf
 
-      - name: Verify shell
-        run: |
-          echo "Testing with ${{ matrix.shell }}"
-          which ${{ matrix.shell }}
+      - name: Install dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install dash fish fzf
 
-      - name: Check shebang
-        run: |
-          for file in bin/* install.sh; do
-            if [[ -f "$file" ]]; then
-              first_line=$(head -1 "$file")
-              if [[ "$first_line" != "#!"* ]]; then
-                echo "Missing shebang in $file"
-                exit 1
-              fi
-              echo "✓ $file has valid shebang"
-            fi
-          done
+      - name: Run test suite
+        run: zsh tests/run.zsh
 
-      - name: Syntax check with zsh
-        if: matrix.shell == 'zsh'
-        run: |
-          for file in plugins/*.zsh lib/*.zsh bin/oh-my-bd install.sh; do
-            if [[ -f "$file" ]]; then
-              echo "Checking $file..."
-              zsh -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
-            fi
-          done
-          echo "All zsh syntax checks passed"
-
-      - name: Syntax check with ${{ matrix.shell }} compat files
-        if: matrix.shell != 'zsh'
-        run: |
-          for file in lib/compat.sh; do
-            if [[ -f "$file" ]]; then
-              echo "Checking $file..."
-              ${{ matrix.shell }} -n "$file" 2>&1 || { echo "Syntax error in $file"; exit 1; }
-            fi
-          done
-          echo "All ${{ matrix.shell }} compatibility syntax checks passed"
-
-      - name: Test CLI with ${{ matrix.shell }}
-        if: matrix.shell == 'zsh'
-        run: |
-          export HOME=/home/runner
-          export OMBD_DIR="$PWD"
-          
-          ./bin/oh-my-bd version || { echo "CLI failed"; exit 1; }
-          ./bin/oh-my-bd list || { echo "list failed"; exit 1; }
-          ./bin/oh-my-bd help || { echo "help failed"; exit 1; }
-          
-          echo "✓ CLI works on ${{ matrix.shell }}"
-
-      - name: Test plugin loading with ${{ matrix.shell }}
-        if: matrix.shell == 'zsh'
-        run: |
-          export HOME=/home/runner
-          export OMBD_DIR="$PWD"
-          export OMBD_SILENT=1
-          
-          zsh -c '
-            source lib/utils.zsh
-            for plugin in plugins/*.zsh; do
-              source "$plugin" 2>&1 || echo "Warning: $plugin had issues"
-            done
-            echo "Plugin loading complete"
-          '
-
-          echo "✓ Plugins load on ${{ matrix.shell }}"
+  shellcheck:
+    name: ShellCheck (install.sh)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck the POSIX installer
+        run: shellcheck --shell=sh install.sh
 
   release:
-    needs: [lint, test]
+    needs: [test, shellcheck]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
-
-      - name: Create Release
+      - name: Check VERSION matches tag
+        run: |
+          TAG="${GITHUB_REF#refs/tags/v}"
+          [ "$(cat VERSION)" = "$TAG" ] || { echo "VERSION ($(cat VERSION)) != tag ($TAG)"; exit 1; }
+      - name: Create release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG=${GITHUB_REF#refs/tags/}
-          VERSION=${TAG#v}
-          
-          echo "Creating release for v$VERSION"
-          
-          gh release create "$TAG" \
-            --title "oh-my-bd v$VERSION" \
-            --generate-release-notes
-
-          echo "Release created: https://github.com/${{ github.repository }}/releases/tag/$TAG"
+          TAG="${GITHUB_REF#refs/tags/}"
+          awk -v v="## ${TAG#v}" '$0 ~ "^"v {f=1; next} /^## / && f {exit} f' CHANGELOG.md > notes.md
+          gh release create "$TAG" --title "oh-my-bd $TAG" --notes-file notes.md

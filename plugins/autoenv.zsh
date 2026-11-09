@@ -1,59 +1,188 @@
 # ============================================================
-# oh-my-bd — autoenv — Auto-load .env on cd
-# Supports: zsh, bash, fish, dash, posix
+# oh-my-bd — autoenv.zsh — Load ./.env when you cd into a directory
+#
+# Safety:
+#   * A .env is only loaded after you approve it. Approval is tied to the
+#     file's path AND content hash, so an edited file asks again.
+#   * Variables that can hijack your shell or tools (PATH, LD_PRELOAD,
+#     GIT_SSH_COMMAND, …) are never set from a .env.
+#   * Leaving the directory restores the previous values.
+#
+# Config (in ~/.config/oh-my-bd/config.zsh):
+#   OMBD_AUTOENV=0            disable entirely
+#   OMBD_AUTOENV_QUIET=1      don't print which variables were loaded
+# Commands:
+#   autoenv                   status for the current directory
+#   autoenv allow | deny      trust / untrust ./.env
+#   autoenv reload            reload ./.env
 # ============================================================
 
-ombd_autoenv_load() {
-  local env_file="${1:-.env}"
-  
-  if [[ -f "$env_file" ]]; then
-    while IFS= read -r line || [[ -n "$line" ]]; do
-      [[ "$line" =~ ^[[:space:]]*# ]] && continue
-      [[ -z "${line// }" ]] && continue
-      
-      line="${line%%#*}"
-      [[ -z "$line" ]] && continue
-      
-      if [[ "$line" =~ ^([A-Za-z_][A-Za-z0-9_]*)=(.*) ]]; then
-        local key="${match[1]}"
-        local val="${match[2]}"
-        
-        val="${val%\"}"; val="${val#\"}"
-        val="${val%\'}"; val="${val#\'}"
-        
-        (set +x; export "$key=$val")
-      fi
-    done < "$env_file"
-  fi
+[[ "${OMBD_AUTOENV:-1}" == 0 ]] && return 0
+
+typeset -g OMBD_AUTOENV_TRUST="${OMBD_AUTOENV_TRUST:-$OMBD_CONFIG_DIR/autoenv-trusted}"
+typeset -g _ombd_autoenv_dir=""          # directory whose .env is currently loaded
+typeset -gA _ombd_autoenv_saved          # key -> previous value
+typeset -ga _ombd_autoenv_unset          # keys that were unset before loading
+
+typeset -ga OMBD_AUTOENV_BLOCKED=(
+  PATH FPATH MANPATH CDPATH HOME SHELL USER LOGNAME IFS PS1 PS2 PS3 PS4 PROMPT RPROMPT
+  ZDOTDIR ENV BASH_ENV PROMPT_COMMAND PERL5LIB PERL5OPT PYTHONPATH PYTHONSTARTUP
+  RUBYOPT NODE_OPTIONS EDITOR VISUAL PAGER GIT_EDITOR SSH_AUTH_SOCK SUDO_ASKPASS
+  OMBD_DIR OMBD_CONFIG_DIR OMBD_CUSTOM OMBD_AUTOENV_TRUST
+)
+function _ombd_autoenv_blocked {
+  local k="$1"
+  (( ${OMBD_AUTOENV_BLOCKED[(Ie)$k]} )) && return 0
+  [[ "$k" == (LD_*|DYLD_*|GIT_*|ZSH_*) ]]
 }
 
-# Zsh: use chpwd hook
-if [[ -n "$ZSH_VERSION" ]]; then
-  ombd_chpwd_hook() {
-    ombd_autoenv_load ".env"
-  }
-  [[ -n "${chpwd_functions[(r)ombd_chpwd_hook]}" ]] || chpwd_functions+=(ombd_chpwd_hook)
+# Parse a .env file and print "KEY<TAB>VALUE" lines.
+# Supports: KEY=value, export KEY=value, 'single', "double" (with \n \" \\),
+# and trailing " # comments" on unquoted values. Values may contain = and #.
+function _ombd_autoenv_parse {
+  emulate -L zsh
+  setopt extendedglob
+  local line key val q
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%$'\r'}"
+    line="${line##[[:space:]]#}"
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    line="${line#export[[:space:]]##}"
+    [[ "$line" == (#b)([A-Za-z_][A-Za-z0-9_]#)[[:space:]]#=[[:space:]]#(*) ]] || continue
+    key="$match[1]" val="$match[2]"
+    q="${val[1]}"
+    if [[ "$q" == \" || "$q" == \' ]] && [[ "${val[2,-1]}" == *"$q"* ]]; then
+      val="${val[2,-1]}"
+      if [[ "$q" == \" ]]; then
+        # take up to the first unescaped closing quote, then unescape
+        local out="" i=1 c
+        while (( i <= ${#val} )); do
+          c="${val[i]}"
+          if [[ "$c" == \\ ]]; then
+            (( i++ )); c="${val[i]}"
+            case "$c" in n) out+=$'\n' ;; t) out+=$'\t' ;; *) out+="$c" ;; esac
+          elif [[ "$c" == \" ]]; then break
+          else out+="$c"; fi
+          (( i++ ))
+        done
+        val="$out"
+      else
+        val="${val%%\'*}"
+      fi
+    else
+      val="${val%%[[:space:]]##\#*}"          # strip " # comment"
+      val="${val%%[[:space:]]#}"
+    fi
+    print -r -- "$key"$'\t'"${val//$'\n'/\\n}"
+  done < "$1"
+}
 
-# Bash: override cd function
-elif [[ -n "$BASH_VERSION" ]]; then
-  cd() {
-    builtin cd "$@"
-    ombd_autoenv_load ".env"
-  }
+function _ombd_autoenv_trusted {
+  local file="${1:A}" sum
+  [[ -r "$OMBD_AUTOENV_TRUST" ]] || return 1
+  sum="$(ombd_sha "$file")"
+  grep -qxF -- "$sum $file" "$OMBD_AUTOENV_TRUST"
+}
 
-# Fish: use fish_prompt or event handler
-elif command -v fish >/dev/null 2>&1; then
-  # Fish doesn't source .sh files, this would need a .fish file
-  # For now, skip fish autoenv
-  :
+function _ombd_autoenv_trust {
+  local file="${1:A}"
+  mkdir -p "${OMBD_AUTOENV_TRUST:h}"
+  _ombd_autoenv_untrust "$file"
+  print -r -- "$(ombd_sha "$file") $file" >> "$OMBD_AUTOENV_TRUST"
+}
 
-# Dash/Posix: override cd
-else
-  cd() {
-    # shellcheck disable=SC2164
-    builtin cd "$@"
-    ombd_autoenv_load ".env"
-  }
-fi
+function _ombd_autoenv_untrust {
+  local file="${1:A}"
+  [[ -f "$OMBD_AUTOENV_TRUST" ]] || return 0
+  local tmp="$OMBD_AUTOENV_TRUST.tmp.$$"
+  awk -v f="$file" '{ p = $0; sub(/^[^ ]+ /, "", p); if (p != f) print }' "$OMBD_AUTOENV_TRUST" > "$tmp"
+  command mv -f "$tmp" "$OMBD_AUTOENV_TRUST"
+}
 
-# Silent - no console output during init
+function _ombd_autoenv_unload {
+  [[ -z "$_ombd_autoenv_dir" ]] && return 0
+  local k
+  for k in "${(@k)_ombd_autoenv_saved}"; do
+    export "$k=${_ombd_autoenv_saved[$k]}"
+  done
+  for k in "${_ombd_autoenv_unset[@]}"; do
+    unset "$k"
+  done
+  _ombd_autoenv_saved=() _ombd_autoenv_unset=() _ombd_autoenv_dir=""
+}
+
+# ombd_autoenv_load [file] — load (after trust check) and remember for unload.
+function ombd_autoenv_load {
+  local file="${1:-.env}"
+  [[ -f "$file" && -r "$file" ]] || return 0
+  file="${file:A}"
+
+  if ! _ombd_autoenv_trusted "$file"; then
+    [[ -t 0 && -t 2 ]] || return 0     # never auto-trust without a human
+    local keys
+    keys="$(_ombd_autoenv_parse "$file" | cut -f1 | tr '\n' ' ')"
+    print -u2 -- "[oh-my-bd] $(ombd_color yellow 'Untrusted .env') ${file/#$HOME/~}"
+    print -u2 -- "           sets: ${keys:-(nothing)}"
+    local reply
+    read -r "reply?           Load it? [y]es once / [a]lways / [N]o: " </dev/tty
+    case "$reply" in
+      a|A) _ombd_autoenv_trust "$file" ;;
+      y|Y) ;;
+      *) return 0 ;;
+    esac
+  fi
+
+  _ombd_autoenv_unload
+  local key val line
+  local -a loaded skipped
+  while IFS=$'\t' read -r key val; do
+    if _ombd_autoenv_blocked "$key"; then skipped+=("$key"); continue; fi
+    if (( ${+parameters[$key]} )); then
+      (( ${+_ombd_autoenv_saved[$key]} )) || _ombd_autoenv_saved[$key]="${(P)key}"
+    else
+      _ombd_autoenv_unset+=("$key")
+    fi
+    export "$key=${val//\\n/$'\n'}"
+    loaded+=("$key")
+  done < <(_ombd_autoenv_parse "$file")
+  _ombd_autoenv_dir="${file:h}"
+
+  if [[ "${OMBD_AUTOENV_QUIET:-0}" != 1 && -t 2 ]]; then
+    (( ${#loaded} )) && print -u2 -- "[oh-my-bd] .env loaded: ${loaded[*]}"
+  fi
+  (( ${#skipped} )) && print -u2 -- "[oh-my-bd] .env $(ombd_color yellow 'ignored unsafe keys'): ${skipped[*]}"
+  return 0
+}
+
+function _ombd_autoenv_chpwd {
+  # Left the directory tree whose .env is active? Restore the environment.
+  if [[ -n "$_ombd_autoenv_dir" && "$PWD/" != "$_ombd_autoenv_dir/"* ]]; then
+    _ombd_autoenv_unload
+  fi
+  [[ -f "$PWD/.env" && "$PWD" != "$_ombd_autoenv_dir" ]] && ombd_autoenv_load "$PWD/.env"
+  return 0
+}
+
+function autoenv {
+  local f="$PWD/.env"
+  case "${1:-}" in
+    allow|trust) [[ -f "$f" ]] || { print "No .env here."; return 1; }
+                 _ombd_autoenv_trust "$f"; ombd_autoenv_load "$f" ;;
+    deny|untrust) _ombd_autoenv_untrust "$f"; _ombd_autoenv_unload; print "Untrusted ${f/#$HOME/~}" ;;
+    reload)      _ombd_autoenv_unload; ombd_autoenv_load "$f" ;;
+    unload)      _ombd_autoenv_unload ;;
+    help|-h)     sed -n '2,20p' "$OMBD_DIR/plugins/autoenv.zsh" | sed 's/^# \{0,1\}//' ;;
+    "")
+      if [[ -f "$f" ]]; then
+        if _ombd_autoenv_trusted "$f"; then print ".env: trusted"; else print ".env: not trusted (autoenv allow)"; fi
+      else print "No .env in this directory."; fi
+      [[ -n "$_ombd_autoenv_dir" ]] && print "active: ${_ombd_autoenv_dir/#$HOME/~} (${(j:, :)${(@k)_ombd_autoenv_saved} ${_ombd_autoenv_unset}})"
+      ;;
+    *) print "Usage: autoenv [allow|deny|reload|unload|help]"; return 1 ;;
+  esac
+}
+
+autoload -Uz add-zsh-hook
+add-zsh-hook chpwd _ombd_autoenv_chpwd
+# Handle the directory the shell starts in, but only for interactive shells.
+[[ -o interactive ]] && _ombd_autoenv_chpwd
