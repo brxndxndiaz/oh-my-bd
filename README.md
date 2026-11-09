@@ -154,7 +154,9 @@ Project-local notes in `notes.md` at the git root — handy context for you and 
 | | |
 |---|---|
 | <kbd>Ctrl+R</kbd> | History search |
-| <kbd>Ctrl+F</kbd> / <kbd>Ctrl+T</kbd> | File search |
+| <kbd>Ctrl+F</kbd> | Find files. <kbd>Tab</kbd> switches scope: **here** → **everywhere** (your home folder) → **recent** (changed in the last 3 days, newest first). <kbd>Enter</kbd> inserts the path at your cursor, <kbd>Ctrl+O</kbd> jumps to the file's folder, <kbd>Ctrl+Space</kbd> marks several |
+| `ff [scope]` | The same finder as a command — `ff recent` to find the file you just saved somewhere |
+| <kbd>Ctrl+T</kbd> | fzf's plain file search |
 | <kbd>Alt+C</kbd> | Fuzzy `cd` |
 | `vf [query]` | Pick files, open in editor |
 | `fcd [query]` | Fuzzy `cd` into a subdirectory |

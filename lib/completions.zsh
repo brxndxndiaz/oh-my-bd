@@ -186,5 +186,6 @@ compdef _ombd_killport kill-port
 _ombd_autoenv() { local -a s; s=(allow deny reload unload help); _values 'autoenv' $s; }
 (( $+functions[autoenv] )) && compdef _ombd_autoenv autoenv
 
+(( $+functions[ff] )) && compdef '_values scope here everywhere recent' ff
 compdef _files extract
 compdef _directories mkcd

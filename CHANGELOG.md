@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+- <kbd>Ctrl+F</kbd> is now a scoped file finder: <kbd>Tab</kbd> cycles **here** → **everywhere** (home folder, skipping `node_modules`, caches, `Library`, …) → **recent** (files changed in the last 3 days, newest first — for finding the file you just saved in the wrong place). <kbd>Ctrl+O</kbd> jumps to the selected file's folder. Works without `fd` and on fzf 0.44.
+- `ff [here|everywhere|recent]` — the same finder as a command.
+- `OMBD_RECENT_DAYS` sets the window for the recent scope.
+
 ## 2.0.0
 
 A big maintenance release: bug fixes, safer defaults, fuzzy pickers everywhere, and tab completion.

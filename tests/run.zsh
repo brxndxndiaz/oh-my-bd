@@ -356,6 +356,31 @@ if group docker; then
 fi
 
 # ============================================================
+if group files; then
+  sandbox files
+  mkdir -p proj/sub "$HOME/docs/deep" "$HOME/node_modules/x" && print a > proj/sub/here.txt
+  print b > "$HOME/docs/deep/lost.md"; print c > "$HOME/node_modules/x/skip.js"; print d > "$HOME/docs/old.md"
+  touch -t 202001010000 "$HOME/docs/old.md"
+  cd proj
+  st="$T_ROOT/files/state"; rm -f "$st"
+  out="$(zsh "$REPO/bin/ombd-files" list "$st")"
+  has "here: header first" "${out%%$'\n'*}" "HERE"
+  has "here: lists relative paths" "$out" $'\nsub/here.txt'
+  out="$(zsh "$REPO/bin/ombd-files" next "$st")"
+  has "Tab → everywhere" "${out%%$'\n'*}" "EVERYWHERE"
+  has "everywhere: finds files under ~ as ~/…" "$out" "~/docs/deep/lost.md"
+  hasnt "everywhere: skips node_modules" "$out" "skip.js"
+  out="$(zsh "$REPO/bin/ombd-files" next "$st")"
+  has "Tab → recent" "${out%%$'\n'*}" "RECENT"
+  has "recent: includes new files" "$out" "~/docs/deep/lost.md"
+  hasnt "recent: excludes old files" "$out" "old.md"
+  out="$(zsh "$REPO/bin/ombd-files" next "$st")"
+  has "Tab wraps back to here" "${out%%$'\n'*}" "HERE"
+  out="$(zsh "$REPO/bin/ombd-files" preview "~/docs/deep/lost.md")"
+  eq "preview resolves ~/ paths" "$out" "b"
+fi
+
+# ============================================================
 if group completions; then
   sandbox completions
   

@@ -1,0 +1,94 @@
+#!/usr/bin/env zsh
+# ============================================================
+# oh-my-bd — ombd-files — file lists for the Ctrl+F picker
+#
+#   ombd-files list <state-file>   print header + files for the current scope
+#   ombd-files next <state-file>   switch to the next scope, then list
+#   ombd-files preview <path>      preview a file from any scope
+#
+# Scopes cycle with Tab: here → everywhere (~) → recent (~, newest first).
+# Paths under $HOME are shown as ~/… in the global scopes.
+# ============================================================
+
+emulate -L zsh
+setopt extendedglob
+
+MODES=(here everywhere recent)
+RECENT_DAYS="${OMBD_RECENT_DAYS:-3}"
+
+# Big, noisy folders that are never what you're looking for.
+SKIP=(.git node_modules .cache .npm .yarn .pnpm-store .cargo .rustup .gradle .m2
+      .venv venv __pycache__ .Trash .local/share/Trash Library .docker .vscode-server
+      go/pkg .terraform .next dist build target vendor)
+
+mode_of() { local m; [[ -r "$1" ]] && m="$(<"$1")"; print -r -- "${m:-here}"; }
+
+tilde() { sed "s|^$HOME/|~/|"; }
+
+list_here() {
+  if (( $+commands[fd] )); then
+    fd --type f --hidden --follow --exclude .git
+  else
+    find . -type d -name .git -prune -o -type f -print 2>/dev/null | sed 's|^\./||'
+  fi
+}
+
+list_everywhere() {
+  if (( $+commands[fd] )); then
+    fd --type f --hidden --follow --absolute-path ${(@)SKIP/#/--exclude=} . "$HOME" 2>/dev/null | tilde
+  else
+    local -a prune; local s
+    for s in $SKIP; do prune+=(-name "${s:t}" -o); done
+    find "$HOME" \( ${prune[1,-2]} \) -prune -o -type f -print 2>/dev/null | tilde
+  fi
+}
+
+list_recent() {
+  zmodload zsh/stat 2>/dev/null
+  local -a files; local f m
+  if (( $+commands[fd] )); then
+    files=(${(f)"$(fd --type f --hidden --absolute-path --changed-within "${RECENT_DAYS}d" \
+      ${(@)SKIP/#/--exclude=} . "$HOME" 2>/dev/null)"})
+  else
+    local -a prune; local s
+    for s in $SKIP; do prune+=(-name "${s:t}" -o); done
+    files=(${(f)"$(find "$HOME" \( ${prune[1,-2]} \) -prune -o -type f -mtime -"$RECENT_DAYS" -print 2>/dev/null)"})
+  fi
+  for f in $files; do
+    zstat -A m +mtime -- "$f" 2>/dev/null && print -r -- "$m $f"
+  done | sort -rn | head -500 | cut -d' ' -f2- | tilde
+}
+
+header() {
+  local here="${PWD/#$HOME/~}"
+  case "$1" in
+    here)       print -r -- "▸ HERE ($here)   ·   Tab: everywhere   ·   Ctrl+O: cd to file's folder" ;;
+    everywhere) print -r -- "▸ EVERYWHERE (~)   ·   Tab: recent   ·   Ctrl+O: cd to file's folder" ;;
+    recent)     print -r -- "▸ RECENT (changed in the last ${RECENT_DAYS} days, newest first)   ·   Tab: here   ·   Ctrl+O: cd" ;;
+  esac
+}
+
+list() {
+  local mode; mode="$(mode_of "$1")"
+  header "$mode"
+  list_$mode
+}
+
+case "$1" in
+  list) list "$2" ;;
+  next)
+    local cur i
+    cur="$(mode_of "$2")"
+    i=${MODES[(Ie)$cur]}
+    print -r -- "${MODES[i % ${#MODES} + 1]}" > "$2"
+    list "$2" ;;
+  preview)
+    local p="$2"
+    [[ "$p" == "~/"* ]] && p="$HOME/${p#\~/}"
+    if [[ -d "$p" ]]; then ls -la -- "$p"
+    elif (( $+commands[bat] )); then bat --color=always --style=numbers --line-range=:200 -- "$p"
+    elif (( $+commands[file] )) && [[ "$(file -b --mime -- "$p")" == *charset=binary* ]]; then
+      print -r -- "(binary file)"; ls -la -- "$p"
+    else head -200 -- "$p"; fi ;;
+  *) print -u2 "usage: ombd-files list|next <state-file> | preview <path>"; exit 1 ;;
+esac

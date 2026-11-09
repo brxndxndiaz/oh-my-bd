@@ -31,8 +31,54 @@ if ombd_has fd; then
 fi
 export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:---height 40% --layout=reverse --border}"
 
-# Extra binding: Ctrl+F for files (Ctrl+T also works, fzf's default).
-(( $+widgets[fzf-file-widget] )) && bindkey '^F' fzf-file-widget
+# --- Ctrl+F: file finder with switchable scope ----------------
+# Tab cycles: here → everywhere (~) → recent (newest first).
+# Enter inserts the path(s) at the cursor; Ctrl+O cds to the file's folder.
+# Ctrl+Space marks several files. (Ctrl+T is still fzf's plain finder.)
+function ombd_find_files {
+  local state; state="$(mktemp "${TMPDIR:-/tmp}/ombd-files.XXXXXX")" || return 1
+  print -r -- "${1:-here}" > "$state"
+  local helper="$OMBD_DIR/bin/ombd-files" out
+  out="$(zsh "$helper" list "$state" |
+    fzf --height=70% --layout=reverse --border --multi --header-lines=1 \
+        --prompt='Files › ' --expect=ctrl-o \
+        --bind "tab:reload(zsh ${(q)helper} next ${(q)state})+first" \
+        --bind 'ctrl-space:toggle+down' \
+        --preview "zsh ${(q)helper} preview {}" --preview-window=right:55%)"
+  rm -f -- "$state"
+  local -a lines; lines=("${(@f)out}")
+  local key="${lines[1]}"; lines=(${lines[2,-1]:#})
+  (( ${#lines} )) || return 1
+  local -a paths; local p
+  for p in "${lines[@]}"; do
+    [[ "$p" == "~/"* ]] && p="$HOME/${p#\~/}"
+    paths+=("$p")
+  done
+  # Result: $REPLY is "cd" or "insert", $reply holds the absolute paths.
+  reply=("${paths[@]}")
+  [[ "$key" == ctrl-o ]] && REPLY=cd || REPLY=insert
+}
+
+function _ombd_find_files_widget {
+  ombd_find_files </dev/tty || { zle reset-prompt; return 0; }
+  if [[ "$REPLY" == cd ]]; then
+    cd -- "${reply[1]:h}"
+    zle -I; print -r -- "→ ${PWD/#$HOME/~}"
+  else
+    LBUFFER+="${(j: :)${(q-)reply}} "
+  fi
+  zle reset-prompt
+}
+if [[ -o interactive ]]; then
+  zle -N _ombd_find_files_widget
+  bindkey '^F' _ombd_find_files_widget
+fi
+
+# ff [here|everywhere|recent] — same finder as a command: prints the chosen path(s)
+function ff {
+  ombd_find_files "${1:-here}" || return 0
+  if [[ "$REPLY" == cd ]]; then cd -- "${reply[1]:h}"; else print -rl -- "${reply[@]}"; fi
+}
 
 # vf [query] — fuzzy-pick file(s) and open in $EDITOR
 function vf {

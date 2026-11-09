@@ -19,6 +19,9 @@ OMBD_DISABLED_PLUGINS=()
 # Notes file name (stored at the git root, or the current dir outside a repo).
 # OMBD_NOTES_FILE=notes.md
 
+# Ctrl+F "recent" scope: files changed within this many days.
+# OMBD_RECENT_DAYS=3
+
 # Use numbered menus instead of fzf pickers.
 # OMBD_NO_FZF=1
 
