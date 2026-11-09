@@ -62,15 +62,35 @@ function _ombd_git_switch_to {
 # --- STATUS ---
 function status { git status -sb "$@"; }
 
+# Porcelain -z gives the destination first, followed by the original on renames.
+# Quote for the line-oriented picker so unusual names survive selection.
+function _ombd_git_status_paths {
+  local status_records="$1" record filename original
+  while IFS= read -r -d '' record; do
+    filename="${record[4,-1]}"
+    if [[ "${record[1,2]}" == *[RC]* ]]; then
+      IFS= read -r -d '' original || break
+    fi
+    if [[ "$2" == picker ]]; then
+      print -r -- "${(q+)filename}"
+    else
+      print -r -- "$filename"
+    fi
+  done <<< "$status_records"
+}
+
 # --- ADD ---  `add` stages everything; `add <files>` stages those;
 # `add -i` picks files interactively (multi-select with diff preview).
 function add {
   if [[ "$1" == -i || "$1" == pick ]]; then
+    local root records
+    root="$(git rev-parse --show-toplevel)" || return 1
+    records="$(git -C "$root" status --porcelain -z --untracked-files=all)" || return 1
     local -a files
-    files=("${(@f)$(git status --porcelain | cut -c4- | ombd_pick 'Stage:' --multi \
-      --preview='git diff --color=always -- {} | head -200; git diff --no-index --color=always /dev/null {} 2>/dev/null | head -200')}")
+    files=("${(@f)$(cd -q -- "$root" && _ombd_git_status_paths "$records" picker | ombd_pick 'Stage:' --multi \
+      --preview="zsh -fc 'p=\${(Q)1}; git --literal-pathspecs diff --color=always -- \"\$p\" | head -200; git diff --no-index --color=always /dev/null \"\$p\" 2>/dev/null | head -200' -- {}")}")
     files=(${files:#})
-    (( ${#files} )) && git add -- "${files[@]}" && git status -sb
+    (( ${#files} )) && git --literal-pathspecs -C "$root" add -- "${(@Q)files}" && git status -sb
     return
   fi
   if (( $# == 0 )); then git add -A; else git add -- "$@"; fi
@@ -168,19 +188,22 @@ EOF
 
 # --- CHANGED --- list changed + untracked files; interactive: pick → open in $EDITOR
 function changed {
-  local list
-  list="$(git status --porcelain 2>/dev/null | cut -c4- | sed 's/.* -> //')"
-  [[ -z "$list" ]] && { print "Working tree clean."; return 0; }
+  local root records
+  root="$(git rev-parse --show-toplevel)" || return 1
+  records="$(git -C "$root" status --porcelain -z --untracked-files=all)" || return 1
+  [[ -z "$records" ]] && { print "Working tree clean."; return 0; }
   if ombd_use_fzf; then
     local -a files
-    files=("${(@f)$(print -r -- "$list" | fzf --multi --height=70% --layout=reverse --border \
-      --prompt='Changed: ' --header='Enter: open in editor  •  Tab: multi-select' \
-      --preview='git diff --color=always HEAD -- {} 2>/dev/null | head -300; [ -f {} ] && git ls-files --error-unmatch {} >/dev/null 2>&1 || head -100 {}' \
-      --preview-window=right:60%)}")
+    files=("${(@f)$(cd -q -- "$root" && _ombd_git_status_paths "$records" picker |
+      fzf --multi --height=70% --layout=reverse --border \
+        --prompt='Changed: ' --header='Enter: open in editor  •  Tab: multi-select' \
+        --preview="zsh -fc 'p=\${(Q)1}; git --literal-pathspecs diff --color=always HEAD -- \"\$p\" 2>/dev/null | head -300; if [[ -f \$p ]] && ! git --literal-pathspecs ls-files --error-unmatch -- \"\$p\" >/dev/null 2>&1; then head -100 -- \"\$p\"; fi' -- {}" \
+        --preview-window=right:60%)}")
     files=(${files:#})
-    (( ${#files} )) && ${=EDITOR:-vi} -- "${files[@]}"
+    files=("${(@Q)files}")
+    (( ${#files} )) && ${=EDITOR:-vi} -- "${(@)files/#/$root/}"
   else
-    print -r -- "$list"
+    _ombd_git_status_paths "$records"
   fi
 }
 

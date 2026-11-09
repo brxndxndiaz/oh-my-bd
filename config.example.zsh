@@ -27,3 +27,6 @@ OMBD_DISABLED_PLUGINS=()
 
 # Skip the daily background update check.
 # OMBD_SKIP_CHECK=1
+
+# Show a short command tip in the first interactive zsh terminal of the day.
+# OMBD_TIP_OF_DAY=1

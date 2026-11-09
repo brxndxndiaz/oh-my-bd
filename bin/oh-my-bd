@@ -202,21 +202,21 @@ cmd_changelog() {
 cmd_update() {
   [[ -d "$OMBD_DIR/.git" ]] || die "Not a git checkout: $OMBD_DIR (reinstall with the installer)"
   cd "$OMBD_DIR" || exit 1
-  local branch; branch="$(git rev-parse --abbrev-ref HEAD)"
-  [[ "$branch" == HEAD ]] && branch=main
-  if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
-    print "${Y}You have local changes in $OMBD_DIR:${X}"
-    git status --short --untracked-files=no
-    print "Custom plugins belong in ${OMBD_CUSTOM/#$HOME/~} (omb add <name>) so updates never touch them."
-    ombd_confirm "Stash these changes and update?" || die "Update cancelled."
-    git stash push -m "omb update $(date +%F)" >/dev/null || die "Could not stash"
-    print "  ${G}✓${X} Stashed (restore with: cd $OMBD_DIR && git stash pop)"
-  fi
-  local before; before="$(git rev-parse HEAD)"
+  local branch before target
+  branch="$(git symbolic-ref --quiet --short HEAD)" || die "Detached HEAD in $OMBD_DIR. Switch to the install branch before updating."
+  before="$(git rev-parse --verify HEAD)" || die "Cannot read the installed commit."
   print "Updating oh-my-bd…"
-  git fetch --quiet origin "$branch" || die "Fetch failed — are you online?"
-  if ! git merge --ff-only --quiet FETCH_HEAD 2>/dev/null; then
-    git reset --quiet --hard FETCH_HEAD || die "Update failed. Check: cd $OMBD_DIR && git status"
+  git fetch --quiet origin "refs/heads/$branch" || die "Fetch failed for origin/$branch. Check your connection and branch."
+  target="$(git rev-parse --verify FETCH_HEAD)" || die "Cannot read the fetched commit."
+  if [[ "$before" != "$target" ]]; then
+    git merge-base --is-ancestor "$before" "$target" ||
+      die "Local commits prevent a fast-forward. Review the checkout at $OMBD_DIR."
+    if [[ -n "$(git status --porcelain --untracked-files=no)" ]]; then
+      git status --short --untracked-files=no
+      die "Local changes in $OMBD_DIR. Commit or stash them before updating."
+    fi
+    git merge --ff-only --no-overwrite-ignore --quiet "$target" ||
+      die "Could not fast-forward. Check the checkout at $OMBD_DIR."
   fi
   mkdir -p "$OMBD_CONFIG_DIR" && print -r -- "$EPOCHSECONDS 0" > "$OMBD_CONFIG_DIR/update-check" 2>/dev/null
   zshrc_migrate
@@ -342,7 +342,7 @@ cmd_doctor() {
     else warn "fzf $v is old — keybindings come from your distro's files; 0.48+ recommended"; fi
   else warn "fzf not installed — pickers fall back to numbered menus"; fi
   local t
-  for t in fd bat docker lazydocker tree thefuck lsof; do
+  for t in fd rg bat docker lazydocker tree thefuck lsof; do
     ombd_has $t && ok "$t" || print "  ${D}- $t (optional)${X}"
   done
 

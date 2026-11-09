@@ -158,6 +158,25 @@ EOF
   has "loaded on cd" "$out" "in:bar"
   has "restored on leaving" "$out" "out:orig URL:unset"
 
+  mkdir -p nested sibling
+  print -rl -- FOO=child FOO=last CHILD=child > nested/.env
+  out="$(zsh -fc "$load; FOO=orig; autoenv allow 2>/dev/null
+    _ombd_autoenv_trust nested/.env
+    cd nested; print -r -- child:\$FOO:\$CHILD
+    cd ../sibling; print -r -- parent:\$FOO:\${CHILD-unset}
+    cd /; print -r -- outside:\$FOO:\${parameters[FOO]}:\${URL-unset}" 2>/dev/null)"
+  eq "nested zsh restores parent and original export state" "$out" $'child:last:child\nparent:bar:unset\noutside:orig:scalar:unset'
+  if command -v fish >/dev/null; then
+    out="$(fish --no-config -c '
+      set -gu FOO orig
+      source "$OMBD_DIR/oh-my-bd.fish"
+      cd nested; echo child:$FOO:$CHILD
+      cd ../sibling; echo parent:$FOO:(count $CHILD)
+      cd /; echo outside:$FOO:(set -qgx FOO; echo $status):(count $URL)
+    ')"
+    eq "nested Fish restores parent and original export state" "$out" $'child:last:child\nparent:bar:0\noutside:orig:1:0'
+  fi
+
   print 'NEW=1' >> .env
   out="$(zsh -fc "$load; ombd_autoenv_load .env; print -r \"\${NEW-unset}\"" </dev/null 2>/dev/null)"
   eq "edited .env needs re-approval" "$out" "unset"
@@ -206,6 +225,17 @@ if group git; then
   git -C ../up branch -q -D gone-soon
   OMBD_ASSUME_YES=1 omb_zsh 'prune' </dev/null >/dev/null
   no "prune deletes branches whose upstream is gone (confirmed)" git show-ref --verify --quiet refs/heads/gone-soon
+
+  mkdir picker-sub
+  touch 'literal -> file' 'with space.txt' ':(exclude)literal'
+  out="$(omb_zsh 'cd picker-sub; changed')"
+  has "changed preserves arrows in filenames" "$out" 'literal -> file'
+  has "changed prints paths with spaces" "$out" "with space.txt"
+  omb_zsh 'cd picker-sub; ombd_pick() { cat; }; add -i' >/dev/null
+  out="$(git diff --cached --name-only)"
+  has "stage picker stages a filename containing pathspec syntax" "$out" ':(exclude)literal'
+  has "stage picker stages the exact filename with an arrow" "$out" 'literal -> file'
+
 fi
 
 # ============================================================
@@ -284,6 +314,41 @@ if group cli; then
 fi
 
 # ============================================================
+if group update; then
+  sandbox update
+  git init -q -b main upstream
+  mkdir upstream/lib
+  cp "$REPO/lib/utils.zsh" upstream/lib/
+  print 1 > upstream/VERSION
+  git -C upstream add .
+  git -C upstream commit -qm initial
+  git clone -q upstream installed
+  export OMBD_DIR="$PWD/installed"
+  omb="$REPO/bin/oh-my-bd"
+
+  yes "no-op update succeeds" "$omb" update
+  print 2 > upstream/VERSION
+  git -C upstream commit -qam upgrade
+  print local > installed/VERSION
+  no "dirty update refuses even with assume yes" env OMBD_ASSUME_YES=1 "$omb" update
+  eq "dirty file is preserved" "$(<installed/VERSION)" local
+  eq "no stash was created" "$(git -C installed stash list)" ""
+  git -C installed restore VERSION
+  yes "clean install fast-forwards" "$omb" update
+  eq "fast-forward installs the new version" "$(<installed/VERSION)" 2
+
+  git -C installed commit -q --allow-empty -m local-only
+  local_head="$(git -C installed rev-parse HEAD)"
+  no "local-ahead install refuses update" "$omb" update
+  git -C upstream commit -q --allow-empty -m remote-only
+  no "divergent install refuses update" "$omb" update
+  eq "divergence preserves local HEAD" "$(git -C installed rev-parse HEAD)" "$local_head"
+  git -C installed switch -q --detach
+  no "detached install refuses update" "$omb" update
+  eq "detached install preserves HEAD" "$(git -C installed rev-parse HEAD)" "$local_head"
+fi
+
+# ============================================================
 if group zshrc; then
   sandbox zshrc
   
@@ -347,12 +412,17 @@ if group docker; then
     '  *) echo "ran: $*" ;;' 'esac' > fakebin/docker
   chmod +x fakebin/docker
   load='source $OMBD_DIR/lib/utils.zsh; source $OMBD_DIR/plugins/docker.zsh'
-  out="$(PATH="$PWD/fakebin:$PATH" FAKE_HOST=unix:///var/run/docker.sock zsh -fc "$load; _ombd_docker_is_remote && print remote || print local")"
-  eq "unix socket context is local" "$out" "local"
-  out="$(PATH="$PWD/fakebin:$PATH" FAKE_HOST=ssh://deploy@prod zsh -fc "$load; _ombd_docker_is_remote && print remote || print local")"
-  eq "ssh context is remote" "$out" "remote"
+  out="$(PATH="$PWD/fakebin:$PATH" FAKE_HOST=unix:///var/run/docker.sock zsh -fc "$load; _ombd_docker_endpoint")"
+  eq "unix socket context resolves to local endpoint" "$out" "unix:///var/run/docker.sock"
+  out="$(PATH="$PWD/fakebin:$PATH" FAKE_HOST=ssh://deploy@prod zsh -fc "$load; _ombd_docker_endpoint")"
+  eq "SSH context resolves to remote endpoint" "$out" "ssh://deploy@prod"
   out="$(PATH="$PWD/fakebin:$PATH" FAKE_HOST=ssh://deploy@prod zsh -fc "$load; docker ps" </dev/null)"
   eq "wrapper passes through without a terminal" "$out" "ran: ps"
+  out="$(PATH="$PWD/fakebin:$PATH" DOCKER_HOST=ssh://direct zsh -fc "$load; _ombd_docker_endpoint")"
+  eq "Docker target respects DOCKER_HOST" "$out" "ssh://direct"
+  out="$(PATH="$PWD/fakebin:$PATH" DOCKER_HOST=ssh://direct DOCKER_CONTEXT=local FAKE_HOST=unix:///socket zsh -fc "$load; _ombd_docker_endpoint")"
+  eq "Docker context overrides environment host" "$out" "unix:///socket"
+
 fi
 
 # ============================================================
@@ -371,13 +441,45 @@ if group files; then
   has "everywhere: finds files under ~ as ~/…" "$out" "~/docs/deep/lost.md"
   hasnt "everywhere: skips node_modules" "$out" "skip.js"
   out="$(zsh "$REPO/bin/ombd-files" next "$st")"
-  has "Tab → recent" "${out%%$'\n'*}" "RECENT"
+  has "Tab → recently modified" "${out%%$'\n'*}" "RECENTLY MODIFIED"
   has "recent: includes new files" "$out" "~/docs/deep/lost.md"
   hasnt "recent: excludes old files" "$out" "old.md"
   out="$(zsh "$REPO/bin/ombd-files" next "$st")"
   has "Tab wraps back to here" "${out%%$'\n'*}" "HERE"
   out="$(zsh "$REPO/bin/ombd-files" preview "~/docs/deep/lost.md")"
   eq "preview resolves ~/ paths" "$out" "b"
+fi
+
+# ============================================================
+if group text && command -v rg >/dev/null; then
+  sandbox text
+  mkdir -p project/sub
+  cd project
+  print -r -- 'needle in project' > parent.txt
+  print -rl -- 'other' 'needle [x] $value' > 'sub/a: b.txt'
+  print -r -- 'needle [x] $value' > sub/.env
+  out="$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle [x] $value')"
+  has "literal search shows match at line 2" "$out" 'a: b.txt:2: needle [x] $value'
+  hasnt "search omits hidden files" "$out" '.env'
+  typeset -a local_row
+  local_row=("${(@ps:\t:)out}")
+  eq "selection retains the full path" "${(Q)local_row[1]}" "$PWD/sub/a: b.txt"
+  out="$(zsh "$REPO/bin/ombd-files" text-preview "$local_row[1]" "$local_row[2]")"
+  has "preview shows matching line" "$out" 'needle [x] $value'
+  eq "current-directory scope stays inside its root" "$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle in project')" ""
+  has "wider scope includes parent files" "$(zsh "$REPO/bin/ombd-files" text "$PWD" 'needle in project')" 'parent.txt:1:'
+  eq "empty query leaves the picker empty" "$(zsh "$REPO/bin/ombd-files" text "$PWD" '')" ""
+fi
+
+# ============================================================
+if group palette; then
+  sandbox palette
+  out="$(omb_zsh 'OMBD_DISABLED_PLUGINS=(notes); note() { :; }; _ombd_palette_rows')"
+  has "palette includes available commands" "$out" 'commit [message]'
+  hasnt "palette excludes disabled plugins" "$out" 'note task'
+  out="$(omb_zsh 'ff() { :; }; _ombd_palette_rows')"
+  has "palette includes available finder command" "$out" 'ff [here|everywhere|recent]'
+  hasnt "palette excludes shortcut-only rows" "$out" 'Ctrl+F'
 fi
 
 # ============================================================

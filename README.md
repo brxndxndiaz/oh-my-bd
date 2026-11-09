@@ -154,13 +154,17 @@ Project-local notes in `notes.md` at the git root — handy context for you and 
 | | |
 |---|---|
 | <kbd>Ctrl+R</kbd> | History search |
-| <kbd>Ctrl+F</kbd> | Find files. <kbd>Tab</kbd> switches scope: **here** → **everywhere** (your home folder) → **recent** (changed in the last 3 days, newest first). <kbd>Enter</kbd> inserts the path at your cursor, <kbd>Ctrl+O</kbd> jumps to the file's folder, <kbd>Ctrl+Space</kbd> marks several |
+| <kbd>Ctrl+F</kbd> | Open the file picker. Press <kbd>Ctrl+F</kbd> again inside it to toggle between Files and Text (requires ripgrep). |
 | `ff [scope]` | The same finder as a command — `ff recent` to find the file you just saved somewhere |
 | <kbd>Ctrl+T</kbd> | fzf's plain file search |
 | <kbd>Alt+C</kbd> | Fuzzy `cd` |
 | `vf [query]` | Pick files, open in editor |
 | `fcd [query]` | Fuzzy `cd` into a subdirectory |
 | `fh [query]` | Pick a past command onto the prompt |
+
+**Files.** Tab cycles through here, home, and recently modified files. Enter inserts the path at your cursor, Ctrl+O jumps to the containing folder, and Ctrl+Space marks several files.
+
+**Text.** Type a literal string inside the picker to see matching lines with a preview. Tab switches between the current directory and Git root when they differ. Enter opens the match at its line in your editor, Ctrl+O jumps to its folder, and Esc returns to your prompt.
 
 ---
 
@@ -182,6 +186,10 @@ omb doctor      # check dependencies, .zshrc, PATH, plugin syntax, load errors
 omb changelog   # recent changes
 omb uninstall   # remove (asks whether to keep your config and bookmarks)
 ```
+
+`omb update` fast-forwards a clean install checkout. If the checkout has local commits or edits that block the update, it stops and leaves them in place.
+
+The first interactive zsh terminal you open each day shows a short command tip. Set `OMBD_TIP_OF_DAY=0` in your oh-my-bd config to turn it off.
 
 oh-my-bd checks for updates once a day in the background and tells you on the next shell start. Set `OMBD_SKIP_CHECK=1` to turn that off.
 

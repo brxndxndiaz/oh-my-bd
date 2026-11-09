@@ -87,7 +87,7 @@ system	paste	Print clipboard
 system	sysinfo	System summary
 system	cx <file>	chmod +x
 fzf	Ctrl+R	Fuzzy history search
-fzf	Ctrl+F	Find files — Tab switches here / everywhere / recent; Ctrl+O cds to the file
+fzf	Ctrl+F	Find files or text — Ctrl+F toggles mode; Tab switches scope
 fzf	ff [here|everywhere|recent]	Same finder as a command (prints the chosen path)
 fzf	Ctrl+T	fzf's plain file search
 fzf	Alt+C	Fuzzy cd

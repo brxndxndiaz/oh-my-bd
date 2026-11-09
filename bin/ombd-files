@@ -5,6 +5,8 @@
 #   ombd-files list <state-file>   print header + files for the current scope
 #   ombd-files next <state-file>   switch to the next scope, then list
 #   ombd-files preview <path>      preview a file from any scope
+#   ombd-files text <root> <query>  find literal matches for the Text picker
+#   ombd-files text-preview <quoted-path> <line>  preview around a match
 #
 # Scopes cycle with Tab: here → everywhere (~) → recent (~, newest first).
 # Paths under $HOME are shown as ~/… in the global scopes.
@@ -63,8 +65,8 @@ header() {
   local here="${PWD/#$HOME/~}"
   case "$1" in
     here)       print -r -- "▸ HERE ($here)   ·   Tab: everywhere   ·   Ctrl+O: cd to file's folder" ;;
-    everywhere) print -r -- "▸ EVERYWHERE (~)   ·   Tab: recent   ·   Ctrl+O: cd to file's folder" ;;
-    recent)     print -r -- "▸ RECENT (changed in the last ${RECENT_DAYS} days, newest first)   ·   Tab: here   ·   Ctrl+O: cd" ;;
+    everywhere) print -r -- "▸ EVERYWHERE (~)   ·   Tab: recently modified   ·   Ctrl+O: cd to file's folder" ;;
+    recent)     print -r -- "▸ RECENTLY MODIFIED (last ${RECENT_DAYS} days, newest first)   ·   Tab: here   ·   Ctrl+O: cd" ;;
   esac
 }
 
@@ -74,8 +76,42 @@ list() {
   list_$mode
 }
 
+# Display text is separate from the quoted path and numeric line used for actions.
+list_text() {
+  local root="$1" query="$2" filename match line
+  [[ -n "$query" ]] || return 0
+  cd -- "$root" || return 1
+  # fzf reloads run in a background process group. Allow zsh's pipeline setup
+  # to proceed when its terminal-control call is denied.
+  trap '' TTOU
+  rg --no-config --color=never --null --with-filename --line-number --no-heading \
+    --fixed-strings --smart-case --max-columns=500 --max-columns-preview -- "$query" . |
+    while IFS= read -r -d '' filename && IFS= read -r match; do
+      line="${match%%:*}"
+      print -r -- "${(qqqq)${filename:a}}"$'\t'"${line}"$'\t'"${(V)filename}:${line}: ${(V)${match#*:}}"
+    done
+  local result=${pipestatus[1]}
+  (( result <= 1 ))
+}
+
+preview_text() {
+  local filename="${(Q)1}" line="$2"
+  [[ "$line" == <-> && -f "$filename" ]] || return 1
+  local start=$(( line > 12 ? line - 12 : 1 )) end=$(( line + 12 ))
+  if (( $+commands[bat] )); then
+    bat --color=always --style=numbers --line-range="$start:$end" --highlight-line="$line" -- "$filename"
+  else
+    awk -v start="$start" -v end="$end" -v match_line="$line" '
+      NR >= start { printf "%s%6d  %s\n", (NR == match_line ? ">" : " "), NR, $0 }
+      NR >= end { exit }
+    ' < "$filename"
+  fi
+}
+
 case "$1" in
   list) list "$2" ;;
+  text) list_text "$2" "$3" ;;
+  text-preview) preview_text "$2" "$3" ;;
   next)
     local cur i
     cur="$(mode_of "$2")"
@@ -90,5 +126,5 @@ case "$1" in
     elif (( $+commands[file] )) && [[ "$(file -b --mime -- "$p")" == *charset=binary* ]]; then
       print -r -- "(binary file)"; ls -la -- "$p"
     else head -200 -- "$p"; fi ;;
-  *) print -u2 "usage: ombd-files list|next <state-file> | preview <path>"; exit 1 ;;
+  *) print -u2 "usage: ombd-files list|next <state-file> | preview <path> | text <root> <query> | text-preview <quoted-path> <line>"; exit 1 ;;
 esac

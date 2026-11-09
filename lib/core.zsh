@@ -64,13 +64,29 @@ omb() {
 
 # Fuzzy command palette: pick any oh-my-bd command, it lands on your prompt
 # ready to edit/run. Also bound to Ctrl+X Ctrl+O (Ctrl+X then Ctrl+O).
+_ombd_palette_rows() {
+  local plugin label description name
+  while IFS=$'\t' read -r plugin label description; do
+    [[ -z "$description" || "$plugin" == \#* ]] && continue
+    if [[ "$plugin" != omb ]]; then
+      (( ${OMBD_DISABLED_PLUGINS[(Ie)$plugin]:-0} )) && continue
+      if (( ${+OMBD_PLUGINS} && ! ${OMBD_PLUGINS[(Ie)$plugin]:-0} )); then
+        continue
+      fi
+      name="${label%% *}"
+      (( ${+functions[$name]} || ${+aliases[$name]} )) || continue
+    fi
+    printf '%-8s\t%-26s\t%s\n' "$plugin" "$label" "$description"
+  done < "$OMBD_DIR/lib/commands.tsv"
+}
+
 ombd_palette() {
-  local reg="$OMBD_DIR/lib/commands.tsv" line
+  local line
   if ! ombd_use_fzf; then
     command "$OMBD_DIR/bin/oh-my-bd" help
     return
   fi
-  line="$(grep -v '^#' "$reg" | awk -F'\t' 'NF>=3 { printf "%-8s\t%-26s\t%s\n", $1, $2, $3 }' |
+  line="$(_ombd_palette_rows |
     fzf --height=70% --layout=reverse --border --prompt='omb › ' --delimiter='\t' \
         --header='Enter: put on prompt   Esc: cancel')" || return 0
   setopt localoptions extendedglob
@@ -89,6 +105,40 @@ if [[ -o interactive ]]; then
   zle -N _ombd_palette_widget
   bindkey '^X^O' _ombd_palette_widget
 fi
+
+# Show a tip once per local calendar day, across terminal windows.
+() {
+  emulate -L zsh
+  [[ -o interactive && -t 0 && -t 1 && "${OMBD_TIP_OF_DAY:-1}" != 0 ]] || return 0
+  zmodload zsh/datetime zsh/system 2>/dev/null || return 0
+
+  local today state="$OMBD_CONFIG_DIR/tip-of-day" lock last tip
+  strftime -s today %Y%j "$EPOCHSECONDS" || return 0
+  [[ -r "$state" ]] && read -r last < "$state"
+  [[ "$last" == "$today" ]] && return 0
+
+  local -a tips=('Use omb search <term> to look up a command.')
+  ombd_use_fzf && tips+=('Use omb to open the command palette.')
+  (( ${+functions[cdc]} )) && tips+=('Use cdc add to bookmark the current folder.')
+  (( ${+functions[note]} )) && tips+=('Use note task <text> to capture a task in this project.')
+  (( ${+functions[work]} )) && tips+=('Use work for a quick overview of your current repo.')
+  (( ${+functions[switch]} )) && tips+=('Use switch to pick a Git branch.')
+  (( ${+functions[ff]} )) && tips+=('Press Ctrl+F to find a file, then Tab to switch scope.')
+  if (( ${+functions[ff]} )) && ombd_has rg; then
+    tips+=('Press Ctrl+F twice to search for text inside files.')
+  fi
+  tip="${tips[10#$today % ${#tips} + 1]}"
+
+  command mkdir -p -- "$OMBD_CONFIG_DIR" 2>/dev/null || return 0
+  { : >> "$state"; } 2>/dev/null || return 0
+  zsystem flock -t 0 -f lock "$state" 2>/dev/null || return 0
+  # A different terminal may have written today's stamp while this one started.
+  read -r last < "$state"
+  if [[ "$last" != "$today" ]] && { print -r -- "$today" >| "$state"; } 2>/dev/null; then
+    print -r -- "$(ombd_color cyan 'omb tip ·') $tip"
+  fi
+  zsystem flock -u "$lock"
+}
 
 # ============================================================
 # Update check — at most once per 24h, in the background so it

@@ -22,10 +22,11 @@
 typeset -g OMBD_AUTOENV_TRUST="${OMBD_AUTOENV_TRUST:-$OMBD_CONFIG_DIR/autoenv-trusted}"
 typeset -g _ombd_autoenv_dir=""          # directory whose .env is currently loaded
 typeset -gA _ombd_autoenv_saved          # key -> previous value
+typeset -gA _ombd_autoenv_unexported
 typeset -ga _ombd_autoenv_unset          # keys that were unset before loading
 
 typeset -ga OMBD_AUTOENV_BLOCKED=(
-  PATH FPATH MANPATH CDPATH HOME SHELL USER LOGNAME IFS PS1 PS2 PS3 PS4 PROMPT RPROMPT
+  PATH FPATH MANPATH CDPATH HOME PWD OLDPWD SHELL USER LOGNAME IFS PS1 PS2 PS3 PS4 PROMPT RPROMPT
   ZDOTDIR ENV BASH_ENV PROMPT_COMMAND PERL5LIB PERL5OPT PYTHONPATH PYTHONSTARTUP
   RUBYOPT NODE_OPTIONS EDITOR VISUAL PAGER GIT_EDITOR SSH_AUTH_SOCK SUDO_ASKPASS
   OMBD_DIR OMBD_CONFIG_DIR OMBD_CUSTOM OMBD_AUTOENV_TRUST
@@ -33,7 +34,7 @@ typeset -ga OMBD_AUTOENV_BLOCKED=(
 function _ombd_autoenv_blocked {
   local k="$1"
   (( ${OMBD_AUTOENV_BLOCKED[(Ie)$k]} )) && return 0
-  [[ "$k" == (LD_*|DYLD_*|GIT_*|ZSH_*) ]]
+  [[ "$k" == (LD_*|DYLD_*|GIT_*|ZSH_*|_ombd_autoenv_*) ]]
 }
 
 # Parse a .env file and print "KEY<TAB>VALUE" lines.
@@ -79,7 +80,7 @@ function _ombd_autoenv_parse {
 
 function _ombd_autoenv_trusted {
   local file="${1:A}" sum
-  [[ -r "$OMBD_AUTOENV_TRUST" ]] || return 1
+  [[ -f "$file" && -r "$OMBD_AUTOENV_TRUST" ]] || return 1
   sum="$(ombd_sha "$file")"
   grep -qxF -- "$sum $file" "$OMBD_AUTOENV_TRUST"
 }
@@ -103,18 +104,23 @@ function _ombd_autoenv_unload {
   [[ -z "$_ombd_autoenv_dir" ]] && return 0
   local k
   for k in "${(@k)_ombd_autoenv_saved}"; do
-    export "$k=${_ombd_autoenv_saved[$k]}"
+    if (( ${+_ombd_autoenv_unexported[$k]} )); then
+      typeset -g +x "$k=${_ombd_autoenv_saved[$k]}"
+    else
+      export "$k=${_ombd_autoenv_saved[$k]}"
+    fi
   done
   for k in "${_ombd_autoenv_unset[@]}"; do
     unset "$k"
   done
-  _ombd_autoenv_saved=() _ombd_autoenv_unset=() _ombd_autoenv_dir=""
+  _ombd_autoenv_saved=() _ombd_autoenv_unexported=() _ombd_autoenv_unset=() _ombd_autoenv_dir=""
 }
 
 # ombd_autoenv_load [file] — load (after trust check) and remember for unload.
 function ombd_autoenv_load {
   local file="${1:-.env}"
   [[ -f "$file" && -r "$file" ]] || return 0
+  local _ombd_autoenv_root="${file:h}"
   file="${file:A}"
 
   if ! _ombd_autoenv_trusted "$file"; then
@@ -137,15 +143,17 @@ function ombd_autoenv_load {
   local -a loaded skipped
   while IFS=$'\t' read -r key val; do
     if _ombd_autoenv_blocked "$key"; then skipped+=("$key"); continue; fi
+    (( ${loaded[(Ie)$key]} )) && { export "$key=${val//\\n/$'\n'}"; continue; }
     if (( ${+parameters[$key]} )); then
-      (( ${+_ombd_autoenv_saved[$key]} )) || _ombd_autoenv_saved[$key]="${(P)key}"
+      _ombd_autoenv_saved[$key]="${(P)key}"
+      [[ "${parameters[$key]}" != *-export* ]] && _ombd_autoenv_unexported[$key]=1
     else
       _ombd_autoenv_unset+=("$key")
     fi
     export "$key=${val//\\n/$'\n'}"
     loaded+=("$key")
   done < <(_ombd_autoenv_parse "$file")
-  _ombd_autoenv_dir="${file:h}"
+  _ombd_autoenv_dir="${_ombd_autoenv_root:A}"
 
   if [[ "${OMBD_AUTOENV_QUIET:-0}" != 1 && -t 2 ]]; then
     (( ${#loaded} )) && print -u2 -- "[oh-my-bd] .env loaded: ${loaded[*]}"
@@ -155,11 +163,21 @@ function ombd_autoenv_load {
 }
 
 function _ombd_autoenv_chpwd {
-  # Left the directory tree whose .env is active? Restore the environment.
-  if [[ -n "$_ombd_autoenv_dir" && "$PWD/" != "$_ombd_autoenv_dir/"* ]]; then
+  local _ombd_autoenv_left='' _ombd_autoenv_root="${PWD:A}"
+  if [[ -n "$_ombd_autoenv_dir" && "$_ombd_autoenv_root/" != "$_ombd_autoenv_dir/"* ]]; then
     _ombd_autoenv_unload
+    _ombd_autoenv_left=1
   fi
-  [[ -f "$PWD/.env" && "$PWD" != "$_ombd_autoenv_dir" ]] && ombd_autoenv_load "$PWD/.env"
+  [[ -f "$_ombd_autoenv_root/.env" && "$_ombd_autoenv_root" != "$_ombd_autoenv_dir" ]] && ombd_autoenv_load "$_ombd_autoenv_root/.env"
+  if [[ -n "$_ombd_autoenv_left" && -z "$_ombd_autoenv_dir" ]]; then
+    while [[ "$_ombd_autoenv_root" != / ]]; do
+      _ombd_autoenv_root="${_ombd_autoenv_root:h}"
+      if _ombd_autoenv_trusted "$_ombd_autoenv_root/.env"; then
+        ombd_autoenv_load "$_ombd_autoenv_root/.env"
+        break
+      fi
+    done
+  fi
   return 0
 }
 
