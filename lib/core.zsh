@@ -115,19 +115,19 @@ if [[ -o interactive ]]; then
   [[ "${_ombd_reloading:-0}" != 1 ]] && bindkey '^X^O' _ombd_palette_widget
 fi
 
-# Wait for the first prompt. Some prompt themes redirect the startup streams.
+# Wait for the line editor so prompt themes can finish drawing before we print.
 function _ombd_daily_tip {
   emulate -L zsh
   [[ -t 1 ]] || return 0
-  add-zsh-hook -d precmd _ombd_daily_tip
   add-zle-hook-widget -d line-init _ombd_daily_tip
   [[ "${OMBD_TIP_OF_DAY:-1}" != 0 ]] || return 0
 
-  local today state="$OMBD_CONFIG_DIR/tip-of-day" lock last tip
+  local today state="$OMBD_CONFIG_DIR/tip-of-day" stamp lock last tip
   today="$(command date +%Y%j)" || return 0
+  stamp="zle:$today"
   lock="$state.$today.lock"
   [[ -r "$state" ]] && read -r last < "$state"
-  [[ "$last" == "$today" ]] && return 0
+  [[ "$last" == "$stamp" ]] && return 0
 
   local -a tips=('Use omb search <term> to look up a command.')
   ombd_use_fzf && tips+=('Use omb to open the command palette.')
@@ -146,9 +146,11 @@ function _ombd_daily_tip {
   {
     # Another terminal may have already written today's stamp.
     [[ -r "$state" ]] && read -r last < "$state"
-    if [[ "$last" != "$today" ]] && { print -r -- "$today" >| "$state"; } 2>/dev/null; then
+    if [[ "$last" != "$stamp" ]]; then
       zle -I 2>/dev/null
-      print -r -- "$(ombd_color cyan 'omb tip ·') $tip"
+      if print -r -- "$(ombd_color cyan 'omb tip ·') $tip"; then
+        { print -r -- "$stamp" >| "$state"; } 2>/dev/null
+      fi
     fi
   } always {
     command rmdir -- "$lock" 2>/dev/null
@@ -158,7 +160,7 @@ function _ombd_daily_tip {
 
 if [[ -o interactive && "${OMBD_TIP_OF_DAY:-1}" != 0 ]]; then
   autoload -Uz add-zsh-hook add-zle-hook-widget
-  add-zsh-hook precmd _ombd_daily_tip
+  add-zsh-hook -d precmd _ombd_daily_tip
   add-zle-hook-widget line-init _ombd_daily_tip
 fi
 
