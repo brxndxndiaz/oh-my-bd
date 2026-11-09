@@ -106,10 +106,12 @@ if [[ -o interactive ]]; then
   bindkey '^X^O' _ombd_palette_widget
 fi
 
-# Show a tip once per local calendar day, across terminal windows.
-() {
+# Wait for the first prompt. Some prompt themes redirect the startup streams.
+function _ombd_daily_tip {
   emulate -L zsh
-  [[ -o interactive && -t 0 && -t 1 && "${OMBD_TIP_OF_DAY:-1}" != 0 ]] || return 0
+  [[ -t 1 ]] || return 0
+  add-zsh-hook -d precmd _ombd_daily_tip
+  [[ "${OMBD_TIP_OF_DAY:-1}" != 0 ]] || return 0
   zmodload zsh/datetime zsh/system 2>/dev/null || return 0
 
   local today state="$OMBD_CONFIG_DIR/tip-of-day" lock last tip
@@ -139,6 +141,11 @@ fi
   fi
   zsystem flock -u "$lock"
 }
+
+if [[ -o interactive && "${OMBD_TIP_OF_DAY:-1}" != 0 ]]; then
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _ombd_daily_tip
+fi
 
 # ============================================================
 # Update check — at most once per 24h, in the background so it
