@@ -2,450 +2,412 @@
 # oh-my-bd — git.zsh — Git shortcuts
 # ============================================================
 
-ombd_git_branch_refs() {
-  git for-each-ref --sort=-committerdate --format='%(refname:short)' refs/heads refs/remotes
+ombd_has git || return 0
+
+# Branches, most recently committed first. Local branches by name; remote
+# branches only when there is no local branch of the same name. Remote
+# HEAD symrefs (the bare "origin" entry) are skipped.
+function ombd_git_branch_refs {
+  local -A seen
+  local ref name
+  git for-each-ref --sort=-committerdate --format='%(refname)' refs/heads refs/remotes 2>/dev/null |
+  while IFS= read -r ref; do
+    case "$ref" in
+      refs/remotes/*/HEAD) continue ;;
+      refs/heads/*) name="${ref#refs/heads/}"; seen[$name]=1; print -r -- "$name" ;;
+      refs/remotes/*)
+        name="${ref#refs/remotes/}"
+        (( ${+seen[${name#*/}]} )) && continue
+        seen[${name#*/}]=1
+        print -r -- "$name" ;;
+    esac
+  done
+}
+
+# Pick a branch interactively (fzf with log preview, or numbered menu).
+function _ombd_git_pick_branch {
+  local prompt="${1:-Branch:}"
+  ombd_git_branch_refs | grep -vx -- "$(git branch --show-current 2>/dev/null)" |
+    ombd_pick "$prompt" --preview='git log --oneline --graph --color=always -20 {} --' \
+      --preview-window=right:55%
+}
+
+# Switch to a branch name as shown by ombd_git_branch_refs. Handles
+# "origin/foo" by tracking it instead of creating a branch called origin/foo.
+function _ombd_git_switch_to {
+  local branch="$1" remote rest
+  [[ -z "$branch" ]] && return 1
+  if git show-ref --verify --quiet "refs/heads/$branch"; then
+    git switch "$branch"; return
+  fi
+  remote="${branch%%/*}" rest="${branch#*/}"
+  if [[ "$branch" == */* ]] && git remote | grep -qx -- "$remote" &&
+     git show-ref --verify --quiet "refs/remotes/$branch"; then
+    if git show-ref --verify --quiet "refs/heads/$rest"; then
+      git switch "$rest"
+    else
+      git switch --track "$branch"
+    fi
+    return
+  fi
+  local r
+  for r in ${(f)"$(git remote)"}; do
+    if git show-ref --verify --quiet "refs/remotes/$r/$branch"; then
+      git switch --track "$r/$branch"; return
+    fi
+  done
+  git switch -c "$branch"
 }
 
 # --- STATUS ---
-status() {
-  git status -sb
-}
+function status { git status -sb "$@"; }
 
-# --- ADD ---
-add() {
-  if [[ -z "$1" ]]; then
-    git add .
-  else
-    git add "$@"
-  fi
-}
-
-# --- COMMIT ---
-commit() {
-  if [[ -z "$1" ]]; then
-    echo "Usage: commit <message>"
-    return 1
-  fi
-  if [[ -z "$(git diff --cached)" ]]; then
-    git add .
-  fi
-  git commit -m "$*"
-}
-
-# --- SWITCH ---
-switch() {
-  local branch="$1"
-
-  if [[ -z "$branch" ]]; then
-    local create_branch_file result query selected
-    create_branch_file="$(mktemp)"
-
-    result=$(
-      ombd_git_branch_refs |
-      fzf --height=70% \
-        --prompt="Switch branch: " \
-        --print-query \
-        --layout=reverse \
-        --header="Enter: switch highlighted branch or create typed branch if no match | Tab: create typed branch" \
-        --bind="tab:execute-silent(printf '%s' {q} > '$create_branch_file')+abort"
-    )
-
-    echo ""
-
-    branch="$(<"$create_branch_file")"
-    rm -f "$create_branch_file"
-
-    if [[ -n "$branch" ]]; then
-      git switch -c "$branch"
-      return 0
-    fi
-
-    query="${result%%$'\n'*}"
-    selected="${result#*$'\n'}"
-
-    if [[ -z "$selected" ]]; then
-      if [[ -n "$query" ]]; then
-        branch="$query"
-      else
-        return 0
-      fi
-    else
-      branch="$selected"
-    fi
-  fi
-
-  if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git switch "$branch"
-  elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
-    git switch --track "origin/$branch"
-  else
-    git switch -c "$branch"
-  fi
-}
-
-# --- BRANCH ---
-branch() {
-  local cmd="${1:-}"
-  
-  if [[ "$cmd" == "help" ]]; then
-    cat << 'EOF'
-branch — Git branch manager
-
-Usage:
-  branch            Show current branch
-  branch ls        List all branches
-  branch new <name> Create and switch to new branch
-  branch rm <name> Delete local branch
-  branch rename <new> Rename current branch
-  branch track <remote>  Set upstream tracking
-EOF
+# --- ADD ---  `add` stages everything; `add <files>` stages those;
+# `add -i` picks files interactively (multi-select with diff preview).
+function add {
+  if [[ "$1" == -i || "$1" == pick ]]; then
+    local -a files
+    files=("${(@f)$(git status --porcelain | cut -c4- | ombd_pick 'Stage:' --multi \
+      --preview='git diff --color=always -- {} | head -200; git diff --no-index --color=always /dev/null {} 2>/dev/null | head -200')}")
+    files=(${files:#})
+    (( ${#files} )) && git add -- "${files[@]}" && git status -sb
     return
   fi
-  
-  case "$cmd" in
-    ls|"")
-      if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1 && [[ -n "$FZF_DEFAULT_COMMAND" || -x "$(command -v fzf 2>/dev/null)" ]]; then
-        ombd_git_branch_refs |
-          fzf --height=60% --prompt="Branches: " --layout=reverse
-      else
-        ombd_git_branch_refs
-      fi
-      ;;
-    new)
-      [[ -z "$2" ]] && echo "Usage: branch new <name>" && return 1
-      git switch -c "$2"
-      ;;
-    rm)
-      [[ -z "$2" ]] && echo "Usage: branch rm <name>" && return 1
-      git branch -d "$2"
-      ;;
-    rename)
-      [[ -z "$2" ]] && echo "Usage: branch rename <new-name>" && return 1
-      git branch -m "$2"
-      ;;
-    track)
-      [[ -z "$2" ]] && echo "Usage: branch track <remote-branch>" && return 1
-      git branch --set-upstream-to="origin/$2"
-      ;;
-    *)
-      git branch --show-current
-      ;;
-  esac
+  if (( $# == 0 )); then git add -A; else git add -- "$@"; fi
 }
 
-# --- BRANCHES ---
-branches() {
-  if [[ -t 1 ]] && command -v fzf >/dev/null 2>&1; then
-    local result
-    result=$(ombd_git_branch_refs |
-      fzf --height=70% --prompt="Switch branch: " --layout=reverse --expect=enter)
-    echo ""
-    if [[ -z "$result" ]]; then return 0; fi
-    local key="${result%%$'\n'*}"
-    local selected="${result#*$'\n'}"
-    if [[ "$key" == "enter" || -n "$selected" ]]; then
-      git switch "$selected"
+# --- COMMIT --- `commit msg words` (auto-stages all if nothing is staged);
+# `commit` alone opens your editor.
+function commit {
+  if git diff --cached --quiet 2>/dev/null; then
+    git add -A
+  fi
+  if (( $# == 0 )); then git commit; else git commit -m "$*"; fi
+}
+
+# --- SWITCH --- `switch` opens a picker (type a new name + Tab to create it).
+function switch {
+  local branch="$1"
+  if [[ -z "$branch" ]]; then
+    if ombd_use_fzf; then
+      local out key query sel
+      out="$(ombd_git_branch_refs | grep -vx -- "$(git branch --show-current 2>/dev/null)" |
+        fzf --height=70% --layout=reverse --border --prompt='Switch: ' --print-query \
+          --expect=tab \
+          --header='Enter: switch  •  Tab: create branch named after your query' \
+          --preview='git log --oneline --graph --color=always -20 {} --' --preview-window=right:55%)"
+      local -a lines; lines=("${(@f)out}")       # keep empty lines (empty key = Enter)
+      query="${lines[1]}" key="${lines[2]}" sel="${lines[3]}"
+      if [[ "$key" == tab ]]; then
+        [[ -n "$query" ]] && git switch -c "$query"
+        return
+      fi
+      branch="${sel:-$query}"
+      [[ -z "$branch" ]] && return 0
+    else
+      branch="$(_ombd_git_pick_branch 'Switch to')" || return 0
     fi
+  fi
+  _ombd_git_switch_to "$branch"
+}
+
+# --- CREATE + SWITCH ---
+function create {
+  [[ -z "$1" ]] && { print "Usage: create <branch>"; return 1; }
+  git switch -c "$1"
+}
+
+# --- BRANCHES --- pick and switch
+function branches {
+  if ombd_interactive; then
+    local b
+    b="$(_ombd_git_pick_branch 'Switch to')" && _ombd_git_switch_to "$b"
   else
     ombd_git_branch_refs
   fi
 }
 
-# --- CHANGED ---
-changed() {
-  git diff --name-only HEAD
-}
+# --- BRANCH ---
+function branch {
+  case "${1:-}" in
+    help|-h)
+      cat <<'EOF'
+branch — Git branch manager
 
-# --- ROOT ---
-root() {
-  cd "$(git rev-parse --show-toplevel 2>/dev/null)" || echo "Not a git repository"
-}
-
-# --- CREATE + SWITCH ---
-create() {
-  git switch -c "$1"
-}
-
-# --- SYNC ---
-sync() {
-  git pull --rebase --autostash && git push
-}
-
-# --- FETCH ---
-fetch() {
-  git fetch --all --prune
-}
-
-# --- PUSH ---
-push() {
-  git push
-}
-
-# --- PULL ---
-pull() {
-  git pull --rebase --autostash
-}
-
-# --- LOG ---
-log() {
-  GIT_PAGER=cat command git log --oneline --graph --decorate --all
-}
-
-# --- UNDO ---
-undo() {
-  git reset --soft HEAD~1
-}
-
-# --- DISCARD ---
-discard() {
-  git reset --hard HEAD
-}
-
-# --- UPDATE ---
-update() {
-  local base="main"
-  git show-ref --verify --quiet refs/remotes/origin/main || base="master"
-  git stash push -u -m "auto-stash" >/dev/null 2>&1
-  git fetch origin
-  git rebase "origin/$base"
-  git stash pop >/dev/null 2>&1
-}
-
-# --- REWRITE ---
-rewrite() {
-  git push --force-with-lease
-}
-
-# --- STASH ---
-stash() {
-  git stash "$@"
-}
-
-unstash() {
-  local idx="${1:-0}"
-  git stash pop "stash@{$idx}"
-}
-
-# --- TAGS ---
-tags() {
-  git tag -n --sort=-version:refname | while read -r tag msg; do
-    printf "  ${CYAN}%s${RESET}  ${DIM}%s${RESET}\n" "$tag" "$msg"
-  done
-}
-
-tag() {
-  local name="${1:-}"
-  if [[ -z "$name" ]]; then
-    echo "Usage: tag <name>"
-    return 1
-  fi
-  git tag -a "$name" -m "Tag: $name"
-  printf "${GREEN}Created tag:${RESET} %s\n" "$name"
-  printf "Push with: ${CYAN}git push origin %s${RESET}\n" "$name"
-}
-
-release() {
-  local bump="${1:-patch}"
-  if [[ "$bump" != "patch" && "$bump" != "minor" && "$bump" != "major" ]]; then
-    echo "Usage: release [patch|minor|major]"
-    return 1
-  fi
-
-  printf "${YELLOW}Running release...${RESET}\n"
-  if "${OMBD_DIR}/release.sh" "$bump" 2>/dev/null; then
-    printf "${GREEN}Release ready!${RESET}\n\n"
-    printf "Push with: ${CYAN}git push origin v* --follow-tags${RESET}\n"
-  else
-    printf "${RED}Release failed. Check release.sh exists.${RESET}\n"
-    return 1
-  fi
-}
-
-# --- REPO ---
-repo() {
-  local cmd="${1:-}"
-  
-  if [[ "$cmd" == "help" ]]; then
-    cat << 'EOF'
-repo — Git repository utilities
-
-Usage:
-  repo            Repo summary
-  repo root       Jump to git root
-  repo open       Open origin URL in browser
-  repo name       Print owner/repo
-  repo main      Detect default branch name
-  repo url       Print origin URL
-  repo pr        Open PR creation page
-  repo issues    Open issues page
+  branch                 Show current branch
+  branch ls              List branches (recent first)
+  branch new <name>      Create and switch
+  branch rm [name]       Delete a local branch (picker if no name)
+  branch rename <new>    Rename current branch
+  branch track [remote]  Set upstream to <remote>/<current> (default origin)
 EOF
-    return
-  fi
-  
-  case "$cmd" in
-    root)
-      local root_dir
-      root_dir="$(git rev-parse --show-toplevel 2>/dev/null)"
-      if [[ -n "$root_dir" ]]; then
-        cd "$root_dir"
-      else
-        echo "Not a git repository"
-        return 1
+      ;;
+    ls|list) ombd_git_branch_refs ;;
+    new)
+      [[ -z "$2" ]] && { print "Usage: branch new <name>"; return 1; }
+      git switch -c "$2" ;;
+    rm|delete)
+      local b="$2"
+      if [[ -z "$b" ]]; then
+        b="$(git for-each-ref --format='%(refname:short)' refs/heads |
+          grep -vx -- "$(git branch --show-current)" | ombd_pick 'Delete branch:')" || return 0
       fi
-      ;;
-    open)
-      git remote get-url origin 2>/dev/null | xargs open 2>/dev/null || \
-        { echo "No remote URL found"; return 1; }
-      ;;
-    name)
-      git remote get-url origin 2>/dev/null |
-        sed 's/.*[\/:]\([^\/]*\)\/\([^.]*\).*/\1\/\2/'
-      ;;
-    main)
-      local remote
-      remote="$(git remote 2>/dev/null | head -1)"
-      if [[ -n "$remote" ]]; then
-        git symbolic-ref "refs/remotes/$remote/HEAD" 2>/dev/null |
-          sed "s|refs/remotes/$remote/||"
-      else
-        echo "main"
-      fi
-      ;;
-    url)
-      git remote get-url "${2:-origin}" 2>/dev/null
-      ;;
-    pr)
-      local url branch
-      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
-      branch="$(git branch --show-current 2>/dev/null)"
-      open "${url}/compare/main...${branch}?expand=1" 2>/dev/null
-      ;;
-    issues)
-      local url
-      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
-      open "${url}/issues" 2>/dev/null
-      ;;
-    *)
-      local branch url
-      branch="$(git branch --show-current 2>/dev/null || echo "(detached)")"
-      url="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
-      echo "repo   : $url"
-      echo "branch : $branch"
-      ;;
+      if ! git branch -d -- "$b"; then
+        ombd_confirm "'$b' is not fully merged. Force delete?" && git branch -D -- "$b"
+      fi ;;
+    rename)
+      [[ -z "$2" ]] && { print "Usage: branch rename <new-name>"; return 1; }
+      git branch -m -- "$2" ;;
+    track)
+      local cur; cur="$(git branch --show-current)"
+      git branch --set-upstream-to="${2:-origin}/$cur" ;;
+    "") git branch --show-current ;;
+    *) git branch "$@" ;;
   esac
 }
 
-# --- WORK ---
-work() {
-  local branch dirty docker_ctx env_file
-  
-  branch="$(git branch --show-current 2>/dev/null || echo "detached")"
-  if git diff --quiet HEAD 2>/dev/null; then
-    dirty="${GREEN}clean${RESET}"
+# --- CHANGED --- list changed + untracked files; interactive: pick → open in $EDITOR
+function changed {
+  local list
+  list="$(git status --porcelain 2>/dev/null | cut -c4- | sed 's/.* -> //')"
+  [[ -z "$list" ]] && { print "Working tree clean."; return 0; }
+  if ombd_use_fzf; then
+    local -a files
+    files=("${(@f)$(print -r -- "$list" | fzf --multi --height=70% --layout=reverse --border \
+      --prompt='Changed: ' --header='Enter: open in editor  •  Tab: multi-select' \
+      --preview='git diff --color=always HEAD -- {} 2>/dev/null | head -300; [ -f {} ] && git ls-files --error-unmatch {} >/dev/null 2>&1 || head -100 {}' \
+      --preview-window=right:60%)}")
+    files=(${files:#})
+    (( ${#files} )) && ${=EDITOR:-vi} -- "${files[@]}"
   else
-    dirty="${YELLOW}dirty${RESET}"
+    print -r -- "$list"
   fi
-  
-  docker_ctx="$(command docker context show 2>/dev/null || echo "unknown")"
-  
-  if [[ -f .env ]]; then
-    env_file="${GREEN}.env${RESET}"
-  else
-    env_file="${DIM}no .env${RESET}"
-  fi
-  
-  echo ""
-  echo "  branch    $branch"
-  echo "  status   $dirty"
-  echo "  docker   $docker_ctx"
-  echo "  env      $env_file"
-  echo ""
 }
 
-# --- RECENT ---
-recent() {
-  if [[ ! -f "$HOME/.cdc_dirs" ]]; then
-    echo "No recent bookmarks. Add: cdc add <name> <path>"
+# --- ROOT ---
+function root {
+  local top
+  top="$(git rev-parse --show-toplevel 2>/dev/null)" || { print "Not a git repository"; return 1; }
+  cd "$top"
+}
+
+function gsync { git pull --rebase --autostash && git push; }
+function fetch { git fetch --all --prune "$@"; }
+push()  { git push "$@"; }
+pull()  { git pull --rebase --autostash "$@"; }
+
+# --- LOG --- git graph inside a repo; falls through to the system `log`
+# (macOS unified logging) outside a repo or for its subcommands.
+function log {
+  case "$1" in
+    show|stream|stats|collect|config|erase) command log "$@"; return ;;
+  esac
+  if ombd_in_git; then
+    git log --oneline --graph --decorate --color=auto "$@"
+  elif (( $+commands[log] )); then
+    command log "$@"
+  else
+    print "Not a git repository"; return 1
+  fi
+}
+
+# --- UNDO --- undo last commit, keep the changes staged
+function undo {
+  git log -1 --oneline || return 1
+  git reset --soft HEAD~1 && print "Undone. Changes are still staged."
+}
+
+# --- DISCARD ---  `discard <files>` restores just those files;
+# `discard` alone discards ALL uncommitted changes after confirmation.
+function discard {
+  if (( $# )); then
+    git restore --staged --worktree -- "$@" 2>/dev/null || git checkout HEAD -- "$@"
     return
   fi
-  
-  if command -v fzf >/dev/null 2>&1; then
-    local result
-    result=$(awk -F'|' '{print $1 " -> " $2}' "$HOME/.cdc_dirs" |
-      tac | head -10 |
-      fzf --height=50% --prompt="Recent: " --layout=reverse)
-    if [[ -n "$result" ]]; then
-      local target="${result#*-> }"
-      target="${target#"${target%%[![:space:]]*}"}"
-      cd "$target" 2>/dev/null || { echo "Not found: $target"; return 1; }
+  local changes
+  changes="$(git status --short --untracked-files=no)"
+  [[ -z "$changes" ]] && { print "Nothing to discard."; return 0; }
+  print -r -- "$changes"
+  ombd_confirm "$(ombd_color red 'Discard ALL changes above?') This cannot be undone." || return 1
+  git reset --hard HEAD
+}
+
+# --- UPDATE --- rebase current branch onto the remote default branch
+function update {
+  local base; base="$(ombd_default_branch)"
+  git fetch origin "$base" || return 1
+  git rebase --autostash "origin/$base"
+}
+
+# --- REWRITE --- safe force push
+function rewrite { git push --force-with-lease "$@"; }
+
+# --- STASH ---
+function stash { git stash "$@"; }
+
+# `unstash` with no argument: pick a stash (preview shows its diff).
+function unstash {
+  local idx="$1"
+  if [[ -z "$idx" ]]; then
+    [[ -z "$(git stash list)" ]] && { print "No stashes."; return 0; }
+    if ombd_interactive; then
+      local sel
+      sel="$(git stash list | ombd_pick 'Apply stash:' --preview='git stash show -p --color=always {1}' \
+        --delimiter=':')" || return 0
+      idx="${sel%%:*}"
+      git stash pop "$idx"; return
     fi
-  else
-    echo "Recent cdc targets:"
-    tac "$HOME/.cdc_dirs" 2>/dev/null | head -10 | while IFS='|' read -r name dir; do
-      echo "  $name -> $dir"
-    done
+    idx=0
   fi
+  [[ "$idx" == <-> ]] && idx="stash@{$idx}"
+  git stash pop "$idx"
 }
 
-# --- PRUNE ---
-prune() {
-  echo "Fetching and pruning..."
-  git fetch --all --prune 2>/dev/null
-  echo ""
-  echo "Gone remote branches:"
-  git branch -vv 2>/dev/null | grep ':gone]' | awk '{print "  " $1}'
-  echo ""
-  echo "Run 'git branch -D <name>' to delete a gone branch."
+# --- TAGS ---
+function tags {
+  git tag -n --sort=-version:refname | while read -r t msg; do
+    printf "  %s%s%s  %s%s%s\n" "$OMBD_C_CYAN" "$t" "$OMBD_C_RESET" "$OMBD_C_DIM" "$msg" "$OMBD_C_RESET"
+  done
 }
 
-# --- PUBLISH ---
-publish() {
-  local branch
+function tag {
+  [[ -z "$1" ]] && { print "Usage: tag <name> [message]"; return 1; }
+  local name="$1"; shift
+  git tag -a "$name" -m "${*:-$name}" || return 1
+  print "${OMBD_C_GREEN}Created tag:${OMBD_C_RESET} $name"
+  print "Push with: ${OMBD_C_CYAN}git push origin $name${OMBD_C_RESET}"
+}
+
+# --- RELEASE --- bump the latest vX.Y.Z tag and create an annotated tag
+function release {
+  local bump="${1:-patch}"
+  [[ "$bump" == (patch|minor|major) ]] || { print "Usage: release [patch|minor|major]"; return 1; }
+  local last; last="$(git tag --list 'v[0-9]*' --sort=-version:refname | head -1)"
+  local v="${${last:-v0.0.0}#v}" maj min pat
+  maj="${v%%.*}"; v="${v#*.}"; min="${v%%.*}"; pat="${${v#*.}%%[^0-9]*}"
+  case "$bump" in
+    major) (( maj++, min = 0, pat = 0 )) ;;
+    minor) (( min++, pat = 0 )) ;;
+    patch) (( pat++ )) ;;
+  esac
+  local next="v$maj.$min.$pat"
+  print "Last release: ${last:-none}  →  ${OMBD_C_GREEN}$next${OMBD_C_RESET}"
+  [[ -n "$last" ]] && git log --oneline "$last"..HEAD | head -20
+  ombd_confirm "Create tag $next?" y || return 1
+  git tag -a "$next" -m "Release $next" || return 1
+  print "Push with: ${OMBD_C_CYAN}git push origin $next${OMBD_C_RESET}"
+}
+
+# --- REPO ---
+function repo {
+  local web
+  case "${1:-}" in
+    help|-h)
+      cat <<'EOF'
+repo — Git repository utilities
+
+  repo           Repo summary
+  repo root      Jump to git root
+  repo open      Open repository in browser
+  repo name      Print owner/repo
+  repo main      Print default branch
+  repo url       Print web URL
+  repo pr        Open PR page for current branch
+  repo issues    Open issues page
+EOF
+      ;;
+    root) root ;;
+    open) browse ;;
+    pr) browse pr ;;
+    issues) browse issues ;;
+    main) ombd_default_branch ;;
+    url) ombd_remote_web_url "${2:-origin}" ;;
+    name)
+      web="$(ombd_remote_web_url)" || return 1
+      print -r -- "${${web#*://}#*/}" ;;
+    "")
+      web="$(ombd_remote_web_url)"
+      print "repo    : ${web:-(no origin)}"
+      print "branch  : $(git branch --show-current 2>/dev/null || print detached)"
+      print "default : $(ombd_default_branch)"
+      local ab; ab="$(git rev-list --left-right --count @{u}...HEAD 2>/dev/null)"
+      [[ -n "$ab" ]] && print "behind/ahead: ${ab//$'\t'/ / }"
+      ;;
+    *) print "Unknown: repo $1 (try: repo help)"; return 1 ;;
+  esac
+}
+
+# --- WORK --- one-glance status
+function work {
+  local branch dirty docker_ctx env_file
   branch="$(git branch --show-current 2>/dev/null)"
-  if [[ -z "$branch" ]]; then
-    echo "No current branch"
-    return 1
+  [[ -z "$branch" ]] && branch="${OMBD_C_DIM}(not a repo / detached)${OMBD_C_RESET}"
+  if ! ombd_in_git; then dirty="${OMBD_C_DIM}-${OMBD_C_RESET}"
+  elif [[ -z "$(git status --porcelain 2>/dev/null)" ]]; then dirty="${OMBD_C_GREEN}clean${OMBD_C_RESET}"
+  else dirty="${OMBD_C_YELLOW}dirty ($(git status --porcelain | wc -l | tr -d ' ') files)${OMBD_C_RESET}"
   fi
-  
-  if git config "branch.${branch}.merge" >/dev/null 2>&1; then
-    echo "Already publishing: $branch"
+  if ombd_has docker; then docker_ctx="$(command docker context show 2>/dev/null || print unknown)"
+  else docker_ctx="${OMBD_C_DIM}n/a${OMBD_C_RESET}"; fi
+  if [[ -f .env ]]; then env_file="${OMBD_C_GREEN}.env${OMBD_C_RESET}"
+  else env_file="${OMBD_C_DIM}no .env${OMBD_C_RESET}"; fi
+  print ""
+  print "  branch   $branch"
+  print "  status   $dirty"
+  print "  docker   $docker_ctx"
+  print "  env      $env_file"
+  print ""
+}
+
+# --- PRUNE --- fetch, then offer to delete branches whose upstream is gone
+function prune {
+  git fetch --all --prune --quiet || return 1
+  local -a gone
+  gone=("${(@f)$(git for-each-ref --format='%(refname:short) %(upstream:track)' refs/heads |
+    awk '$2 == "[gone]" {print $1}')}")
+  gone=(${gone:#})
+  (( ${#gone} )) || { print "No branches with a deleted upstream."; return 0; }
+  print "Branches whose remote is gone:"
+  print -rl -- "  "${^gone}
+  local -a pick
+  if ombd_use_fzf; then
+    pick=("${(@f)$(print -rl -- "${gone[@]}" | fzf --multi --height=50% --layout=reverse --border \
+      --prompt='Delete: ' --header='Tab: select  •  Enter: delete selected' --bind='ctrl-a:select-all')}")
+    pick=(${pick:#})
+  elif ombd_confirm "Delete all ${#gone} of them?"; then
+    pick=("${gone[@]}")
+  fi
+  (( ${#pick} )) && git branch -D -- "${pick[@]}"
+}
+
+# --- PUBLISH --- push, setting upstream on first push
+function publish {
+  local branch; branch="$(git branch --show-current 2>/dev/null)"
+  [[ -z "$branch" ]] && { print "No current branch"; return 1; }
+  if git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
     git push
   else
-    echo "First push: $branch"
     git push -u origin "$branch"
   fi
 }
 
-# --- BROWSE ---
-browse() {
-  local cmd="${1:-}"
-  local url base
-  
-  base="$(git remote get-url origin 2>/dev/null | sed 's/\.git$//')"
-  if [[ -z "$base" ]]; then
-    echo "No origin remote"
-    return 1
-  fi
-  
-  case "$cmd" in
+# --- BROWSE --- open repo pages (works with ssh and https remotes)
+function browse {
+  local base url
+  base="$(ombd_remote_web_url)" || { print "No origin remote"; return 1; }
+  case "${1:-}" in
     pr)
-      local branch
-      branch="$(git branch --show-current 2>/dev/null)"
-      url="${base}/compare/main...${branch}?expand=1"
-      ;;
-    issues)
-      url="${base}/issues"
-      ;;
-    actions)
-      url="${base}/actions"
-      ;;
-    releases)
-      url="${base}/releases"
-      ;;
-    *)
-      url="$base"
-      ;;
+      local branch; branch="$(git branch --show-current 2>/dev/null)"
+      if [[ "$base" == *gitlab* ]]; then
+        url="$base/-/merge_requests/new?merge_request%5Bsource_branch%5D=$branch"
+      else
+        url="$base/compare/$(ombd_default_branch)...$branch?expand=1"
+      fi ;;
+    issues)   url="$base/issues" ;;
+    actions)  url="$base/actions" ;;
+    releases) url="$base/releases" ;;
+    file)     url="$base/blob/$(git branch --show-current)/$(git rev-parse --show-prefix)${2}" ;;
+    "")       url="$base" ;;
+    *) print "Usage: browse [pr|issues|actions|releases|file <path>]"; return 1 ;;
   esac
-  
-  open "$url" 2>/dev/null || echo "Open: $url"
+  ombd_open "$url"
 }
