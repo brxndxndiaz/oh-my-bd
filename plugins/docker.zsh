@@ -32,22 +32,52 @@ alias ctx=context
 # points somewhere other than this machine (e.g. a production host).
 # Read-only commands (ps, logs, images, inspect, …) never prompt.
 # Disable with OMBD_DOCKER_GUARD=0.
-function _ombd_docker_is_remote {
-  local host
-  host="$(command docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null)"
-  [[ -n "$host" && "$host" != unix://* && "$host" != npipe://* ]]
+function _ombd_docker_endpoint {
+  local context_name="$1" host="$2"
+  if [[ -n "$host" ]]; then
+    print -r -- "$host"
+  elif [[ -n "$context_name" ]]; then
+    DOCKER_HOST= DOCKER_CONTEXT= command docker context inspect --format '{{.Endpoints.docker.Host}}' "$context_name" 2>/dev/null
+  elif [[ -n "$DOCKER_CONTEXT" ]]; then
+    _ombd_docker_endpoint "$DOCKER_CONTEXT"
+  elif [[ -n "$DOCKER_HOST" ]]; then
+    print -r -- "$DOCKER_HOST"
+  else
+    command docker context inspect --format '{{.Endpoints.docker.Host}}' 2>/dev/null
+  fi
 }
 
 function docker {
   if [[ "${OMBD_DOCKER_GUARD:-1}" == 1 && -t 0 ]]; then
-    local sub="$1"
-    [[ "$sub" == compose ]] && sub="compose:${2:-}"
-    case "$sub" in
-      ps|logs|images|image|inspect|version|info|stats|top|events|history|search|context|help|--help|-h|""|\
+    local -a args=("$@")
+    local context_name host endpoint alternate_config
+    while (( ${#args} )); do
+      case "$args[1]" in
+        --context|-c) context_name="$args[2]"; shift 2 args || break ;;
+        --host|-H) host="$args[2]"; shift 2 args || break ;;
+        --context=*) context_name="${args[1]#*=}"; shift args ;;
+        --host=*) host="${args[1]#*=}"; shift args ;;
+        -H?*) host="${args[1]#-H}"; host="${host#=}"; shift args ;;
+        -c?*) context_name="${args[1]#-c}"; context_name="${context_name#=}"; shift args ;;
+        --config) alternate_config=1; shift 2 args || break ;;
+        --config=*) alternate_config=1; shift args ;;
+        --log-level|-l|--tlscacert|--tlscert|--tlskey) shift 2 args || break ;;
+        --help|-h|--version|-v) command docker "$@"; return ;;
+        -*) shift args ;;
+        *) break ;;
+      esac
+    done
+    case "$args[1]:$args[2]" in
+      ps:*|logs:*|images:*|inspect:*|version:*|info:*|stats:*|top:*|events:*|history:*|search:*|context:*|help:*|:|\
+      image:ls|image:inspect|image:history|container:ls|container:inspect|container:logs|\
       compose:ps|compose:logs|compose:config|compose:ls|compose:images|compose:top|compose:version) ;;
       *)
-        if _ombd_docker_is_remote; then
-          print -u2 -- "$(ombd_color yellow '⚠ Docker context') '$(command docker context show)' is $(ombd_color bold remote)."
+        # Alternate config files can select a different context. Ask when the target is unknown.
+        if [[ -z "$alternate_config" ]]; then
+          endpoint="$(_ombd_docker_endpoint "$context_name" "$host")"
+        fi
+        if [[ "$endpoint" != (unix://*|npipe://*) ]]; then
+          print -u2 -r -- "$(ombd_color yellow '⚠ Docker target') ${endpoint:-${context_name:-unknown}}"
           ombd_confirm "Run 'docker $*' there?" || { print -u2 "Aborted."; return 1; }
         fi ;;
     esac
@@ -55,9 +85,9 @@ function docker {
   command docker "$@"
 }
 
-alias clean-containers='command docker container prune -f'
-alias clean-images='command docker image prune -f'
-alias clean-all='command docker system prune -a'
+alias clean-containers='docker container prune -f'
+alias clean-images='docker image prune -f'
+alias clean-all='docker system prune -a'
 alias dps='command docker ps --format "table {{.Names}}\t{{.Image}}\t{{.Status}}\t{{.Ports}}"'
 alias dpsa='command docker ps -a --format "table {{.Names}}\t{{.Image}}\t{{.Status}}"'
 
