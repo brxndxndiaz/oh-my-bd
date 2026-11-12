@@ -343,6 +343,9 @@ if group update; then
   git -C upstream commit -q --allow-empty -m remote-only
   no "divergent install refuses update" "$omb" update
   eq "divergence preserves local HEAD" "$(git -C installed rev-parse HEAD)" "$local_head"
+  out="$("$omb" update --auto 2>&1)"
+  no "auto mode refuses a divergent install" "$omb" update --auto
+  eq "auto mode refuses silently" "$out" ""
   git -C installed switch -q --detach
   no "detached install refuses update" "$omb" update
   eq "detached install preserves HEAD" "$(git -C installed rev-parse HEAD)" "$local_head"
@@ -391,6 +394,19 @@ if group install; then
   eq "re-running is idempotent" "$(grep -c '>>> oh-my-bd >>>' ~/.zshrc)" "1"
   out="$(zsh -ic 'whence -w omb; print ok' 2>&1 </dev/null)"
   has "fresh shell loads cleanly" "$out" "omb: function"$'\n'"ok"
+
+  # Unattended update: fast-forwards and signals open shells to reload.
+  print 'function from_upstream { print up; }' >> "$src/plugins/qol.zsh"
+  git -C "$src" commit -qam upstream
+  OMBD_DIR="$HOME/.oh-my-bd" zsh ~/.oh-my-bd/bin/oh-my-bd update --auto
+  eq "update --auto fast-forwards" "$(git -C ~/.oh-my-bd rev-parse HEAD)" "$(git -C "$src" rev-parse HEAD)"
+  has "update --auto signals an automatic reload" "$(<"$HOME/.config/oh-my-bd/reload")" " auto"
+  print '# my local edit' >> ~/.oh-my-bd/plugins/git.zsh
+  git -C "$src" commit -q --allow-empty -m upstream2
+  no "update --auto refuses when the install has local edits" \
+    env OMBD_DIR="$HOME/.oh-my-bd" zsh ~/.oh-my-bd/bin/oh-my-bd update --auto
+  yes "local edits are untouched" grep -q '# my local edit' ~/.oh-my-bd/plugins/git.zsh
+  git -C ~/.oh-my-bd checkout -q -- plugins/git.zsh
 
   print 'export KEEP=1' >> ~/.zshrc
   print 'user stuff' > ~/.cdc_dirs
@@ -480,6 +496,34 @@ if group palette; then
   out="$(omb_zsh 'ff() { :; }; _ombd_palette_rows')"
   has "palette includes available finder command" "$out" 'ff [here|everywhere|recent]'
   hasnt "palette excludes shortcut-only rows" "$out" 'Ctrl+F'
+fi
+
+# ============================================================
+if group reload; then
+  sandbox reload
+  mkdir -p proj && print 'FOO=bar' > proj/.env
+  out="$(zsh -fic '
+    source $OMBD_DIR/lib/core.zsh
+    cd proj; _ombd_autoenv_trust .env; ombd_autoenv_load .env 2>/dev/null
+    functions[cdc]="print stub"; _ombd_reload_check
+    print "idle:$(cdc)"
+    zsh $OMBD_DIR/bin/oh-my-bd disable notes >/dev/null
+    zsh $OMBD_DIR/bin/oh-my-bd disable autoenv >/dev/null
+    _ombd_reload_check
+    print "disabled:${+functions[note]}:${+functions[cdc]}:${#chpwd_functions}:${FOO}"
+    cd /; cd ~; print "hooks:ok"
+    zsh $OMBD_DIR/bin/oh-my-bd enable notes >/dev/null
+    zsh $OMBD_DIR/bin/oh-my-bd enable autoenv >/dev/null
+    _ombd_reload_check
+    print "enabled:${+functions[note]}:${chpwd_functions[*]}"
+  ' 2>&1 </dev/null)"
+  has "no reload without a signal" "$out" "idle:stub"
+  has "disabled plugin's commands are removed live" "$out" "disabled:0:1:"
+  has "its hooks are removed too" "$out" "disabled:0:1:0:"
+  has "loaded .env survives a reload" "$out" ":0:bar"
+  has "no errors from removed hooks" "$out" "hooks:ok"
+  has "re-enabled plugin comes back live" "$out" "enabled:1:_ombd_autoenv_chpwd"
+  hasnt "reload prints no errors" "$out" "command not found"
 fi
 
 # ============================================================

@@ -10,6 +10,12 @@ Notes for whoever (human or agent) picks up maintenance.
 - `plugins/*.zsh` — built-in plugins. `bin/oh-my-bd` — the CLI. `install.sh` — POSIX sh (it's run via `sh -c`).
 - User data lives outside the repo: `~/.config/oh-my-bd/{config.zsh,plugins/,autoenv-trusted,update-check}`, `~/.cdc_dirs`.
 
+## Live reload
+- Open shells re-source `core.zsh` before the next prompt whenever `$OMBD_CONFIG_DIR/reload` changes. The CLI writes it via `signal_reload` (`manual`) and unattended updates write it with `auto`. Any CLI command that changes what gets loaded must call `signal_reload`.
+- On reload, everything plugins defined (tracked in `_ombd_owned_funcs` / `_ombd_owned_aliases`) is removed first, including hooks and zle widgets pointing at it, then plugins load again.
+- So **plugins must be safe to source twice**: keep runtime state with `typeset -g x="${x-default}"` / `(( ${+x} )) || typeset -gA x`, and skip one-time startup work when `$_ombd_reloading` is set.
+- `omb update --auto` (run by the background check) only fast-forwards a clean install; anything else falls back to the "Update available" notice.
+
 ## Rules of thumb
 - Never shadow a real system command. If a name collides (`log`, `paste`, `top`), fall through to `command <name>` when used non-interactively or with arguments.
 - Anything destructive goes through `ombd_confirm`. Tests use `OMBD_ASSUME_YES=1`.

@@ -20,10 +20,11 @@
 [[ "${OMBD_AUTOENV:-1}" == 0 ]] && return 0
 
 typeset -g OMBD_AUTOENV_TRUST="${OMBD_AUTOENV_TRUST:-$OMBD_CONFIG_DIR/autoenv-trusted}"
-typeset -g _ombd_autoenv_dir="${_ombd_autoenv_dir:-}"          # directory whose .env is currently loaded
-typeset -gA _ombd_autoenv_saved          # key -> previous value
-typeset -gA _ombd_autoenv_unexported
-typeset -ga _ombd_autoenv_unset          # keys that were unset before loading
+# State survives a live reload (re-sourcing must not forget what's loaded).
+typeset -g _ombd_autoenv_dir="${_ombd_autoenv_dir-}"   # directory whose .env is currently loaded
+(( ${+_ombd_autoenv_saved} ))       || typeset -gA _ombd_autoenv_saved        # key -> previous value
+(( ${+_ombd_autoenv_unexported} ))  || typeset -gA _ombd_autoenv_unexported   # keys that weren't exported before
+(( ${+_ombd_autoenv_unset} ))       || typeset -ga _ombd_autoenv_unset        # keys that were unset before loading
 
 typeset -ga OMBD_AUTOENV_BLOCKED=(
   PATH FPATH MANPATH CDPATH HOME PWD OLDPWD SHELL USER LOGNAME IFS PS1 PS2 PS3 PS4 PROMPT RPROMPT

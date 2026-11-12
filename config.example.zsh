@@ -1,6 +1,6 @@
 # ============================================================
 # oh-my-bd config — sourced before plugins load.
-# Edit with: omb config     Apply with: exec zsh
+# Edit with: omb config   (changes apply to open shells automatically)
 # ============================================================
 
 # Plugins to skip (also managed by `omb disable <name>` / `omb enable <name>`):
@@ -25,7 +25,10 @@ OMBD_DISABLED_PLUGINS=()
 # Use numbered menus instead of fzf pickers.
 # OMBD_NO_FZF=1
 
-# Skip the daily background update check.
+# Install updates automatically (0 = just tell me an update is available).
+# OMBD_AUTO_UPDATE=1
+
+# Skip the daily background update check entirely.
 # OMBD_SKIP_CHECK=1
 
 # Show a short command tip in the first interactive zsh terminal of the day.

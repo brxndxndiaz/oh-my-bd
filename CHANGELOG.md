@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0
+
+### Changed
+- **Updates are seamless.** The daily background check installs fast-forward updates by itself, and every open shell reloads oh-my-bd before its next prompt — no `omb update`, no `exec zsh`. You see one line: `[oh-my-bd] updated 2.2.0 → 2.2.1 · omb changelog`. Set `OMBD_AUTO_UPDATE=0` to only be notified.
+- `omb update`, `omb config`, `omb enable/disable` and `omb add/remove` take effect in the current shell and every other open one immediately. Disabling a plugin removes its commands, hooks and key bindings live; custom plugins and your config are reloaded too.
+- A reload never swaps in code that doesn't parse — it keeps the running version and says which file is broken.
+- `omb update` is stricter: it only fast-forwards, and refuses (leaving everything untouched) on local edits, local commits, divergence or a detached checkout. Automatic updates follow the same rules silently and fall back to the "Update available" notice.
+
+### Added
+- Text search in the <kbd>Ctrl+F</kbd> picker: press <kbd>Ctrl+F</kbd> again to switch between Files and Text (needs ripgrep). Enter opens the match at its line in your editor; Tab switches between the current folder and the git root.
+- A short command tip in the first terminal of the day (`OMBD_TIP_OF_DAY=0` to turn off).
+- The command palette only lists commands from enabled plugins.
+- `omb doctor` checks for ripgrep. Autoenv restores variables that weren't exported before exactly as they were, and handles symlinked folders and repeated keys.
+
+Upgrading from 2.1 or earlier needs one last restart of terminals that were already open — older shells can't reload themselves.
+
 ## 2.1.0
 
 ### Added

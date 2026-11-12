@@ -181,17 +181,15 @@ See [`config.example.zsh`](config.example.zsh) for every option. Custom plugins 
 ## Maintain
 
 ```bash
-omb update      # update (shows what changed)
+omb update      # update right now (shows what changed)
 omb doctor      # check dependencies, .zshrc, PATH, plugin syntax, load errors
 omb changelog   # recent changes
 omb uninstall   # remove (asks whether to keep your config and bookmarks)
 ```
 
-`omb update` fast-forwards a clean install checkout and reloads built-in commands in your current interactive zsh session. Custom startup scripts and config edits take effect in a new shell. If the checkout has local commits or edits that block the update, it stops and leaves them in place.
+Updates install themselves: once a day oh-my-bd checks in the background, applies new versions, and every open shell picks them up before its next prompt — no restart. Config changes (`omb config`, `omb enable/disable`, `omb add`) apply the same way. Set `OMBD_AUTO_UPDATE=0` to be notified instead, or `OMBD_SKIP_CHECK=1` to skip checking altogether. Local edits in the install folder are never overwritten automatically.
 
 The first interactive zsh terminal you open each day shows a short command tip. Set `OMBD_TIP_OF_DAY=0` in your oh-my-bd config to turn it off.
-
-oh-my-bd checks for updates once a day in the background and tells you on the next shell start. Set `OMBD_SKIP_CHECK=1` to turn that off.
 
 ## Fish
 

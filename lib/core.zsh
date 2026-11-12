@@ -20,12 +20,25 @@ export OMBD_VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
   source "$OMBD_DIR/lib/utils.zsh"
 
   # User config: ~/.config/oh-my-bd/config.zsh (see config.example.zsh)
-  [[ "${_ombd_reloading:-0}" != 1 && -r "$OMBD_CONFIG_DIR/config.zsh" ]] && source "$OMBD_CONFIG_DIR/config.zsh"
+  # Re-read on live reload too, so `omb config` / `omb enable|disable` apply.
+  [[ -r "$OMBD_CONFIG_DIR/config.zsh" ]] && source "$OMBD_CONFIG_DIR/config.zsh"
 
   # Built-in plugins, in load order. Override with OMBD_PLUGINS=(...) in config.
   local -a builtin=(system git docker compose qol notes fzf autoenv)
   (( ${+OMBD_PLUGINS} )) && builtin=("${OMBD_PLUGINS[@]}")
   local -a disabled=("${OMBD_DISABLED_PLUGINS[@]}")
+
+  # Record every function/alias a plugin defines, so a reload (or a disabled
+  # plugin) can remove them cleanly. See ombd_reload.
+  typeset -ga _ombd_owned_funcs _ombd_owned_aliases
+  _ombd_owned_funcs=() _ombd_owned_aliases=()
+  local -a before_f before_a
+  _ombd_source_plugin() {
+    before_f=(${(k)functions}) before_a=(${(k)aliases})
+    source "$1"
+    _ombd_owned_funcs+=(${(k)functions:|before_f})
+    _ombd_owned_aliases+=(${(k)aliases:|before_a})
+  }
 
   local p f
   for p in "${builtin[@]}"; do
@@ -33,7 +46,7 @@ export OMBD_VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
     f="$OMBD_DIR/plugins/$p.zsh"
     if [[ -r "$f" ]]; then
       ombd_log debug "load: $p"
-      source "$f"
+      _ombd_source_plugin "$f"
     else
       ombd_log warn "Plugin not found: $p"
     fi
@@ -41,12 +54,13 @@ export OMBD_VERSION="$(<"$OMBD_DIR/VERSION" 2>/dev/null)"
 
   # Custom plugins (created with `omb add <name>`), loaded alphabetically.
   for f in "$OMBD_CUSTOM"/*.zsh(N); do
-    [[ "${_ombd_reloading:-0}" == 1 ]] && break
     p="${f:t:r}"
     (( ${disabled[(Ie)$p]} )) && continue
     ombd_log debug "load custom: $p"
-    source "$f"
+    _ombd_source_plugin "$f"
   done
+  unfunction _ombd_source_plugin
+  _ombd_owned_funcs=(${_ombd_owned_funcs:#_ombd_source_plugin})
 
   # Completions are only useful in interactive shells.
   [[ -o interactive ]] && source "$OMBD_DIR/lib/completions.zsh"
@@ -58,15 +72,9 @@ unalias omb 2>/dev/null
 omb() {
   if (( $# == 0 )) || [[ "$1" == palette || "$1" == p ]]; then
     ombd_palette
-  elif [[ -o interactive && "$1" == (update|upgrade) ]]; then
-    OMBD_UPDATE_IN_SHELL=1 command "$OMBD_DIR/bin/oh-my-bd" "$@" || return
-    local _ombd_reloading=1 file
-    for file in "$OMBD_DIR"/lib/*.zsh "$OMBD_DIR"/plugins/*.zsh; do
-      zsh -n "$file" || { print -u2 -- "oh-my-bd: reload stopped at $file"; return 1; }
-    done
-    source "$OMBD_DIR/lib/core.zsh" || return
-    print -r -- 'oh-my-bd reloaded in this shell.'
   else
+    # `omb update`, `omb config`, `omb enable` … signal a reload; this shell
+    # and every other open one pick it up before the next prompt.
     command "$OMBD_DIR/bin/oh-my-bd" "$@"
   fi
 }
@@ -165,12 +173,72 @@ if [[ -o interactive && "${OMBD_TIP_OF_DAY:-1}" != 0 ]]; then
 fi
 
 # ============================================================
-# Update check — at most once per 24h, in the background so it
-# never slows down shell startup. The result shows on the next start.
+# Live reload — after `omb update`, an automatic update, or a config
+# change (`omb config/enable/disable/add/remove`), every open shell
+# re-sources oh-my-bd before its next prompt. The check is a single
+# builtin `read` of a small marker file, so it costs nothing per prompt.
+# ============================================================
+typeset -g OMBD_RELOAD_FILE="$OMBD_CONFIG_DIR/reload"
+typeset -g _ombd_reload_token=""
+[[ -r "$OMBD_RELOAD_FILE" ]] && read -r _ombd_reload_token < "$OMBD_RELOAD_FILE"
+
+ombd_reload() {
+  local f h line w old_version="$OMBD_VERSION"
+  REPLY=""
+  # Never swap in code that doesn't parse: keep the running version instead.
+  for f in "$OMBD_DIR"/lib/*.zsh "$OMBD_DIR"/plugins/*.zsh "$OMBD_CUSTOM"/*.zsh(N) "$OMBD_CONFIG_DIR"/config.zsh(N); do
+    zsh -n "$f" 2>/dev/null || { print -ru2 -- "[oh-my-bd] not reloading: syntax error in ${f/#$HOME/~}"; return 1; }
+  done
+  # Remove everything the plugins defined last time, including hooks, widgets
+  # and key bindings pointing at them, so disabled/removed commands really go.
+  local -a dead_widgets
+  for f in "${_ombd_owned_funcs[@]}"; do
+    for h in chpwd_functions precmd_functions preexec_functions; do
+      (( ${(P)+h} )) && set -A $h ${(P)h:#$f}
+    done
+    [[ "${widgets[$f]}" == "user:$f" ]] && { zle -D "$f" 2>/dev/null; dead_widgets+=("$f"); }
+    unfunction "$f" 2>/dev/null
+  done
+  if (( ${#dead_widgets} )); then
+    for line in "${(@f)$(bindkey -M main 2>/dev/null)}"; do
+      w="${line##* }"
+      (( ${dead_widgets[(Ie)$w]} )) && bindkey -M main -r "${(Q)${line% *}}"
+    done
+  fi
+  for f in "${_ombd_owned_aliases[@]}"; do unalias "$f" 2>/dev/null; done
+  typeset -g _ombd_reloading=1
+  source "$OMBD_DIR/lib/core.zsh"
+  unset _ombd_reloading
+  [[ "$OMBD_VERSION" != "$old_version" ]] && REPLY="$old_version"
+  return 0
+}
+
+_ombd_reload_check() {
+  local token kind
+  [[ -r "$OMBD_RELOAD_FILE" ]] && read -r token kind < "$OMBD_RELOAD_FILE"
+  [[ "$token" == "${_ombd_reload_token%% *}" ]] && return 0
+  _ombd_reload_token="$token"       # handled (even if the reload is refused)
+  ombd_reload || return 0
+  # Manual `omb …` commands already reported what they did; only announce
+  # updates that happened in the background.
+  if [[ "$kind" == auto && -n "$REPLY" ]]; then
+    print -r -- "[oh-my-bd] $(ombd_color green "updated $REPLY → $OMBD_VERSION") $(ombd_color dim '· omb changelog')"
+  fi
+}
+
+if [[ -o interactive ]]; then
+  autoload -Uz add-zsh-hook
+  add-zsh-hook precmd _ombd_reload_check
+fi
+
+# ============================================================
+# Update check — at most once per 24h, in the background so it never
+# slows down shell startup. Fast-forward updates are applied right away
+# (OMBD_AUTO_UPDATE=0 to only notify); open shells then live-reload.
 # ============================================================
 () {
   emulate -L zsh
-  [[ -o interactive ]] || return 0
+  [[ -o interactive && "${_ombd_reloading:-0}" != 1 ]] || return 0
   [[ -d "$OMBD_DIR/.git" && "${OMBD_SKIP_CHECK:-0}" != "1" ]] || return 0
 
   local state="$OMBD_CONFIG_DIR/update-check"
@@ -179,6 +247,8 @@ fi
   local last=0 avail=0
   [[ -r "$state" ]] && read -r last avail < "$state"
 
+  # Only shown when an update couldn't be applied automatically
+  # (auto-update off, or local edits in the install dir).
   if [[ "$avail" == 1 ]]; then
     print -r -- "[oh-my-bd] $(ombd_color yellow 'Update available.') Run $(ombd_color bold 'omb update')."
   fi
@@ -194,6 +264,10 @@ fi
       local a=0
       [[ "$(git -C "$OMBD_DIR" rev-parse HEAD)" != "$(git -C "$OMBD_DIR" rev-parse FETCH_HEAD)" ]] &&
         git -C "$OMBD_DIR" merge-base --is-ancestor HEAD FETCH_HEAD 2>/dev/null && a=1
+      if (( a )) && [[ "${OMBD_AUTO_UPDATE:-1}" != 0 ]] &&
+         zsh "$OMBD_DIR/bin/oh-my-bd" update --auto; then
+        a=0
+      fi
       print -r -- "$now $a" > "$state"
     fi
   } >/dev/null 2>&1 &!
