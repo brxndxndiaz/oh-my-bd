@@ -35,23 +35,23 @@ export FZF_DEFAULT_OPTS="${FZF_DEFAULT_OPTS:---height 40% --layout=reverse --bor
 # --- Ctrl+F: file finder with switchable scope ----------------
 # Tab cycles: here → everywhere (~) → recent (newest first).
 # Enter inserts the path(s) at the cursor; Ctrl+O cds to the file's folder.
-# Ctrl+Space marks several files. (Ctrl+T is still fzf's plain finder.)
+# Ctrl+Space selects several files for Enter. (Ctrl+T is still fzf's plain finder.)
 function ombd_find_files {
   local state; state="$(mktemp "${TMPDIR:-/tmp}/ombd-files.XXXXXX")" || return 1
   print -r -- "${1:-here}" > "$state"
   local helper="$OMBD_DIR/bin/ombd-files" out status_code
-  local toggle='' enter='print paths'
+  local toggle='' enter='print'
   if [[ "$2" == widget ]]; then
-    enter='insert paths'
-    ombd_has rg && toggle=',ctrl-f'
+    enter='insert'
+    toggle=',ctrl-f'          # Text mode uses ripgrep, or grep without it
   fi
   out="$(zsh "$helper" list "$state" |
     fzf --height=70% --layout=reverse --border --multi --header-lines=1 \
         --prompt='Files › ' --print-query --query="${3:-}" --expect="ctrl-o$toggle" \
-        --header="${toggle:+Ctrl+F: Text · }Enter: $enter · Ctrl+Space: mark · Esc: cancel" \
+        --header="Enter: $enter · Ctrl+O: go to folder${toggle:+ · Ctrl+F: text}" \
         --bind "tab:reload(zsh ${(q)helper} next ${(q)state})+first" \
         --bind 'ctrl-space:toggle+down' \
-        --preview "zsh ${(q)helper} preview {}" --preview-window=right:55%)"
+        --preview "zsh ${(q)helper} preview {}" --preview-window="right,50%,<50(down,45%)")"
   status_code=$?
   file_scope="$(<"$state")"
   rm -f -- "$state"
@@ -82,15 +82,15 @@ function _ombd_find_text {
     local scope='' tab=''
     if [[ -n "$project" && "$project" != "$PWD" ]]; then
       tab=',tab'
-      if [[ "$root" == "$project" ]]; then scope='Tab: here'; else scope='Tab: project'; fi
+      if [[ "$root" == "$project" ]]; then scope='Tab → this folder only'; else scope='Tab → whole repo'; fi
     fi
     out="$(zsh "$helper" text "$root" "$picker_query" </dev/null |
       fzf --height=70% --layout=reverse --border --no-multi --disabled \
           --prompt='Text › ' --print-query --query="$picker_query" --expect="ctrl-f,ctrl-o$tab" \
-          --header="Ctrl+F: Files · Enter: open · Ctrl+O: cd · Esc: cancel${scope:+ · $scope}"$'\n'"Text in ${root/#$HOME/~}" \
+          --header="Enter: open · Ctrl+O: go to folder · Ctrl+F: files"$'\n'"In ${root/#$HOME/~}${scope:+   ·   $scope}" \
           --delimiter=$'\t' --with-nth=3.. \
           --bind "change:reload:zsh ${(qq)helper} text ${(qq)root} {q} </dev/null" \
-          --preview "zsh ${(qq)helper} text-preview {1} {2}" --preview-window=right:55%)"
+          --preview "zsh ${(qq)helper} text-preview {1} {2}" --preview-window="right,50%,<50(down,45%)")"
     status_code=$?
     (( status_code <= 1 )) || return 1
     rows=("${(@f)out}")
@@ -125,7 +125,13 @@ function _ombd_find_files_widget {
     case "$REPLY" in
       files|text) mode="$REPLY"; continue ;;
       cd)
-        cd -- "${reply[1]:h}" && { zle -I; print -r -- "→ ${PWD/#$HOME/~}"; } ;;
+        # Run a real `cd` from the command line (like fzf's Alt+C) so the prompt
+        # redraws for the new folder, chpwd hooks run and it lands in history.
+        # Anything already typed comes back after it runs.
+        [[ -n "$BUFFER" ]] && zle push-line
+        BUFFER="cd -- ${(q-)reply[1]:h}"
+        zle accept-line
+        return ;;
       edit)
         zle -I
         local -a editor=(${(z)${VISUAL:-${EDITOR:-vi}}})

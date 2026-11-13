@@ -136,6 +136,7 @@ cmd_help() {
   print "  ${G}search${X} <term>           search commands"
   print "  ${G}cheatsheet${X}              everything on one page"
   print "  ${G}doctor${X}                  check your setup"
+  print "  ${G}deps${X}                    install missing tools (ripgrep, fzf, fd, bat, …)"
   print "  ${G}update${X}                  update oh-my-bd"
   print "  ${G}config${X}                  edit ${CONFIG_FILE/#$HOME/~}"
   print "  ${G}enable${X}|${G}disable${X} <plugin>  turn plugins on/off"
@@ -249,6 +250,7 @@ cmd_update() {
   signal_reload manual        # every open shell reloads before its next prompt
   print "${G}Updated ${old_version} → $(<VERSION)${X}"
   git log --oneline --no-decorate "$before"..HEAD | head -20 | sed 's/^/  /'
+  offer_missing_tools
   # Shells from before 2.2 have no live reload, so they can't pick this up
   # by themselves (2.1.x's `omb update` already reloads the shell it ran in).
   autoload -Uz is-at-least
@@ -324,6 +326,30 @@ cmd_remove() {
   rm -f -- "$file" && signal_reload && print "Removed $1."
 }
 
+cmd_deps() {
+  local -a missing; missing=(${(f)"$(ombd_missing_tools)"})
+  if (( ! ${#missing} )) && [[ "$1" != --all ]]; then
+    print "${G}All recommended tools are installed.${X}"
+    return 0
+  fi
+  sh "$OMBD_DIR/install.sh" --deps-only "$@"
+  signal_reload            # features that depend on new tools switch on now
+}
+
+# After an update: offer tools that new features need.
+offer_missing_tools() {
+  local -a missing; missing=(${(f)"$(ombd_missing_tools)"})
+  (( ${#missing} )) || return 0
+  print "\n${Y}Some features need tools you don't have yet:${X}"
+  local t
+  for t in "${missing[@]}"; do print "  ${C}$t${X}  ${D}${OMBD_TOOLS[$t]}${X}"; done
+  if [[ -t 0 && -t 1 ]] && ombd_confirm "Install them now?" y; then
+    sh "$OMBD_DIR/install.sh" --deps-only --yes
+  else
+    print "Install later with ${C}omb deps${X}."
+  fi
+}
+
 cmd_install() {
   [[ -r "$OMBD_DIR/install.sh" ]] || die "install.sh not found"
   sh "$OMBD_DIR/install.sh" "$@"
@@ -372,15 +398,20 @@ cmd_doctor() {
   ombd_has zsh && ok "zsh $ZSH_VERSION" || fail "zsh not found"
   ombd_has git && ok "git $(git --version | awk '{print $3}')" || fail "git not found"
 
-  print "\n${BO}Optional${X}"
-  if ombd_has fzf; then
-    local v="${$(fzf --version)%% *}"
-    if [[ "${v%%.*}" -gt 0 || "${${v#*.}%%.*}" -ge 48 ]]; then ok "fzf $v"
-    else warn "fzf $v is old — keybindings come from your distro's files; 0.48+ recommended"; fi
-  else warn "fzf not installed — pickers fall back to numbered menus"; fi
+  print "\n${BO}Recommended${X}"
   local t
-  for t in fd rg bat docker lazydocker tree thefuck lsof; do
-    ombd_has $t && ok "$t" || print "  ${D}- $t (optional)${X}"
+  for t in fzf rg fd bat; do
+    if ! ombd_has $t; then warn "$t missing — ${OMBD_TOOLS[$t]} (install: ${C}omb deps${X})"; continue; fi
+    if [[ $t == fzf ]]; then
+      local v="${$(fzf --version)%% *}"
+      if [[ "${v%%.*}" -gt 0 || "${${v#*.}%%.*}" -ge 48 ]]; then ok "fzf $v"
+      else warn "fzf $v is old — keybindings come from your distro's files; 0.48+ recommended"; fi
+    else ok "$t  ${D}${OMBD_TOOLS[$t]}${X}"; fi
+  done
+
+  print "\n${BO}Optional${X}"
+  for t in docker lazydocker tree thefuck lsof; do
+    ombd_has $t && ok "$t" || print "  ${D}- $t${X}"
   done
 
   print "\n${BO}Installation${X}"
@@ -419,6 +450,7 @@ case "${1:-help}" in
   search|s)      shift; cmd_search "$@" ;;
   cheatsheet|cs) cmd_cheatsheet ;;
   doctor)        cmd_doctor ;;
+  deps)          shift; cmd_deps "$@" ;;
   update|upgrade) shift; cmd_update "$@" ;;
   config)        cmd_config ;;
   enable)        shift; cmd_enable "$@" ;;

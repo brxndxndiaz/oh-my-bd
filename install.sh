@@ -7,6 +7,7 @@
 # Options / env:
 #   --yes, -y          install optional tools without asking (OMBD_YES=1)
 #   --no-deps          skip optional tools
+#   --deps-only        only check/install tools (what `omb deps` runs)
 #   OMBD_DIR=path      install location (default ~/.oh-my-bd)
 #   OMBD_BRANCH=name   branch to install (default main)
 # ============================================================
@@ -21,11 +22,13 @@ MARK_BEGIN='# >>> oh-my-bd >>>'
 MARK_END='# <<< oh-my-bd <<<'
 YES="${OMBD_YES:-0}"
 DEPS=1
+DEPS_ONLY=0
 
 for arg in "$@"; do
   case "$arg" in
     -y|--yes) YES=1 ;;
     --no-deps) DEPS=0 ;;
+    --deps-only) DEPS_ONLY=1 ;;
     -h|--help) sed -n '2,13p' "$0" 2>/dev/null | sed 's/^# \{0,1\}//'; exit 0 ;;
   esac
 done
@@ -61,24 +64,57 @@ pkg_manager() {
 SUDO=''
 if [ "$(id -u)" -ne 0 ] && has sudo; then SUDO='sudo'; fi
 
-install_pkg() {  # cmd label package
-  if has "$1"; then ok "$2"; return 0; fi
+# Package name for a command on a given package manager ("" = not packaged there).
+pkg_for() {  # cmd manager
+  case "$1:$2" in
+    fd:apt-get|fd:dnf)        echo fd-find ;;
+    rg:*)                     echo ripgrep ;;
+    lazydocker:apt-get|lazydocker:dnf|lazydocker:apk|lazydocker:zypper) echo '' ;;
+    *)                        echo "$1" ;;
+  esac
+}
+
+# Name a tool is installed under on Debian/Ubuntu, if different.
+alt_name() {
+  case "$1" in fd) echo fdfind ;; bat) echo batcat ;; *) echo "$1" ;; esac
+}
+
+APT_UPDATED=0
+install_pkg() {  # cmd label
+  if has "$1" || has "$(alt_name "$1")"; then ok "$2"; return 0; fi
   manager="$(pkg_manager)"
   if [ -z "$manager" ]; then skip "$2 (no package manager found)"; return 0; fi
+  pkg="$(pkg_for "$1" "$manager")"
+  if [ -z "$pkg" ]; then skip "$2 (not packaged for $manager — see its website)"; return 0; fi
   if ask "Install $2?"; then
-    if case "$manager" in
-      brew)    brew install "$3" ;;
-      apt-get) $SUDO apt-get install -y "$3" ;;
-      dnf)     $SUDO dnf install -y "$3" ;;
-      pacman)  $SUDO pacman -S --noconfirm "$3" ;;
-      apk)     $SUDO apk add "$3" ;;
-      zypper)  $SUDO zypper install -y "$3" ;;
-    esac; then ok "$2 installed"; else skip "$2 failed to install"; fi
+    if [ "$manager" = apt-get ] && [ "$APT_UPDATED" = 0 ]; then
+      $SUDO apt-get update -qq >/dev/null 2>&1 || true
+      APT_UPDATED=1
+    fi
+    case "$manager" in
+      brew)    brew install "$pkg" ;;
+      apt-get) $SUDO apt-get install -y "$pkg" ;;
+      dnf)     $SUDO dnf install -y "$pkg" ;;
+      pacman)  $SUDO pacman -S --noconfirm "$pkg" ;;
+      apk)     $SUDO apk add "$pkg" ;;
+      zypper)  $SUDO zypper install -y "$pkg" ;;
+    esac || true
+    # Judge by the result, not the exit code: package managers can fail on an
+    # unrelated post-install step after the tool itself installed fine.
+    if has "$1" || has "$(alt_name "$1")"; then ok "$2 installed"; else skip "$2 failed to install"; fi
   else
     skip "$2 skipped"
   fi
 }
 
+# Debian/Ubuntu ship fd as `fdfind` and bat as `batcat`; expose the usual names.
+link_renamed() {  # wanted actual
+  if ! has "$1" && has "$2"; then
+    mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v "$2")" "$HOME/.local/bin/$1" && ok "$1 → $2"
+  fi
+}
+
+if [ "$DEPS_ONLY" = 0 ]; then
 printf '%s' "$BLUE"
 cat <<'EOF'
 
@@ -89,6 +125,7 @@ cat <<'EOF'
         \/_____/   \/_/\/_/      \/_/  \/_/   \/_____/      \/_____/   \/____/
 EOF
 printf '%s\n' "$RESET"
+fi
 
 # ------------------------------------------------------------
 step "[1/4] Required"
@@ -102,19 +139,25 @@ if has git; then ok "git"; else
 fi
 
 # ------------------------------------------------------------
-step "[2/4] Optional tools"
+step "[2/4] Tools"
+# Keep this list in sync with OMBD_TOOLS in lib/utils.zsh.
 if [ "$DEPS" = 1 ]; then
-  install_pkg fzf        "fzf (fuzzy pickers)"     fzf
-  install_pkg fd         "fd (fast file finder)"   fd
-  install_pkg tree       "tree"                    tree
-  install_pkg lazydocker "lazydocker"              lazydocker
-  install_pkg thefuck    "thefuck"                 thefuck
+  install_pkg fzf        "fzf — pickers and fuzzy search"
+  install_pkg rg         "ripgrep — text search (Ctrl+F twice)"
+  install_pkg fd         "fd — fast file search"
+  install_pkg bat        "bat — syntax-highlighted previews"
+  install_pkg tree       "tree — tre command"
+  install_pkg lazydocker "lazydocker — lz command"
+  install_pkg thefuck    "thefuck — tf command"
 else
   skip "skipped (--no-deps)"
 fi
-# Debian/Ubuntu name the fd binary fdfind.
-if ! has fd && has fdfind; then
-  mkdir -p "$HOME/.local/bin" && ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd" && ok "fd → fdfind"
+link_renamed fd fdfind
+link_renamed bat batcat
+
+if [ "$DEPS_ONLY" = 1 ]; then
+  printf '\n'
+  exit 0
 fi
 
 # ------------------------------------------------------------

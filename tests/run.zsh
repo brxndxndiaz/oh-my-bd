@@ -467,24 +467,41 @@ if group files; then
 fi
 
 # ============================================================
-if group text && command -v rg >/dev/null; then
-  sandbox text
-  mkdir -p project/sub
-  cd project
-  print -r -- 'needle in project' > parent.txt
-  print -rl -- 'other' 'needle [x] $value' > 'sub/a: b.txt'
-  print -r -- 'needle [x] $value' > sub/.env
-  out="$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle [x] $value')"
-  has "literal search shows match at line 2" "$out" 'a: b.txt:2: needle [x] $value'
-  hasnt "search omits hidden files" "$out" '.env'
-  typeset -a local_row
-  local_row=("${(@ps:\t:)out}")
-  eq "selection retains the full path" "${(Q)local_row[1]}" "$PWD/sub/a: b.txt"
-  out="$(zsh "$REPO/bin/ombd-files" text-preview "$local_row[1]" "$local_row[2]")"
-  has "preview shows matching line" "$out" 'needle [x] $value'
-  eq "current-directory scope stays inside its root" "$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle in project')" ""
-  has "wider scope includes parent files" "$(zsh "$REPO/bin/ombd-files" text "$PWD" 'needle in project')" 'parent.txt:1:'
-  eq "empty query leaves the picker empty" "$(zsh "$REPO/bin/ombd-files" text "$PWD" '')" ""
+if group text; then
+  # Same expectations for ripgrep, git grep (inside a repo) and plain grep.
+  typeset -a engines=(grep git)
+  command -v rg >/dev/null && engines=(rg $engines)
+  for engine in $engines; do
+    export OMBD_TEXT_ENGINE=$engine
+    print -r -- "  · engine: $engine"
+    sandbox text-$engine
+    mkdir -p project/sub
+    cd project
+    if [[ $engine == git ]]; then
+      git init -q . && print node_modules > .gitignore
+    fi
+    print -r -- 'needle in project' > parent.txt
+    print -rl -- 'other' 'needle [x] $value' > 'sub/a: b.txt'
+    print -r -- 'needle [x] $value' > sub/.env
+    out="$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle [x] $value')"
+    has "literal search shows match at line 2" "$out" 'a: b.txt:2: needle [x] $value'
+    hasnt "search omits hidden files" "$out" '.env'
+    typeset -a local_row
+    local_row=("${(@ps:\t:)out}")
+    eq "selection retains the full path" "${(Q)local_row[1]}" "$PWD/sub/a: b.txt"
+    out="$(zsh "$REPO/bin/ombd-files" text-preview "$local_row[1]" "$local_row[2]")"
+    has "preview shows matching line" "$out" 'needle [x] $value'
+    eq "current-directory scope stays inside its root" "$(zsh "$REPO/bin/ombd-files" text "$PWD/sub" 'needle in project')" ""
+    has "wider scope includes parent files" "$(zsh "$REPO/bin/ombd-files" text "$PWD" 'needle in project')" 'parent.txt:1:'
+    eq "empty query leaves the picker empty" "$(zsh "$REPO/bin/ombd-files" text "$PWD" '')" ""
+    has "lowercase query matches any case" "$(print 'Save Changes' > ui.tsx; zsh "$REPO/bin/ombd-files" text "$PWD" 'save changes')" 'ui.tsx:1:'
+    eq "capitalised query is case-sensitive" "$(zsh "$REPO/bin/ombd-files" text "$PWD" 'Save changes')" ""
+    if [[ $engine != rg ]]; then
+      mkdir -p node_modules/pkg && print 'needle in project' > node_modules/pkg/i.js
+      hasnt "skips node_modules" "$(zsh "$REPO/bin/ombd-files" text "$PWD" 'needle in project')" 'node_modules'
+    fi
+  done
+  unset OMBD_TEXT_ENGINE
 fi
 
 # ============================================================
@@ -524,6 +541,27 @@ if group reload; then
   has "no errors from removed hooks" "$out" "hooks:ok"
   has "re-enabled plugin comes back live" "$out" "enabled:1:_ombd_autoenv_chpwd"
   hasnt "reload prints no errors" "$out" "command not found"
+fi
+
+# ============================================================
+if group deps; then
+  sandbox deps
+  mkdir -p bin_none && for t in zsh git sh dash awk sed grep cat mkdir ln; do
+    command -v $t >/dev/null && ln -sf "$(command -v $t)" bin_none/$t
+  done
+  out="$(PATH="$PWD/bin_none" zsh -fc 'source $OMBD_DIR/lib/utils.zsh; ombd_missing_tools')"
+  eq "missing tools are detected" "$out" $'fzf\nrg\nfd\nbat'
+  out="$(PATH="$PWD/bin_none" dash "$REPO/install.sh" --deps-only --no-deps </dev/null 2>&1)"
+  has "deps-only runs the tools step" "$out" "Tools"
+  hasnt "deps-only skips the banner" "$out" '/\  __'
+  no "deps-only doesn't install oh-my-bd" test -e "$HOME/.oh-my-bd"
+  no "deps-only doesn't touch .zshrc" test -e "$HOME/.zshrc"
+  mkdir -p bin_deb && ln -sf "$(command -v cat)" bin_deb/batcat
+  PATH="$PWD/bin_none:$PWD/bin_deb" dash "$REPO/install.sh" --deps-only --no-deps </dev/null >/dev/null 2>&1
+  yes "Debian's batcat is linked as bat" test -L "$HOME/.local/bin/bat"
+  out="$(PATH="$PWD/bin_none" zsh "$REPO/bin/oh-my-bd" doctor 2>&1)"
+  has "doctor explains missing tools" "$out" "rg missing"
+  has "doctor points to omb deps" "$out" "omb deps"
 fi
 
 # ============================================================

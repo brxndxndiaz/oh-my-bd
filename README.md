@@ -33,7 +33,17 @@ sh -c "$(curl -fsSL https://raw.githubusercontent.com/brxndxndiaz/oh-my-bd/main/
 
 Then `exec zsh` and type `omb`. To install optional tools without prompts append `_ --yes` after the closing quote (or `_ --no-deps` to skip them).
 
-**Requirements:** zsh, git. **Recommended:** [fzf](https://github.com/junegunn/fzf) 0.48+ (pickers + keybindings), [fd](https://github.com/sharkdp/fd), [bat](https://github.com/sharkdp/bat). Optional: docker, lazydocker, tree, thefuck, lsof.
+**Requirements:** zsh, git. The installer offers everything else, using Homebrew, apt, dnf, pacman, apk or zypper:
+
+| Tool | Powers |
+|---|---|
+| [fzf](https://github.com/junegunn/fzf) 0.48+ | Pickers and fuzzy search (numbered menus without it) |
+| [ripgrep](https://github.com/BurntSushi/ripgrep) | Fast text search in <kbd>Ctrl+F</kbd> (falls back to `git grep` / `grep`) |
+| [fd](https://github.com/sharkdp/fd) | Fast file search (falls back to `find`) |
+| [bat](https://github.com/sharkdp/bat) | Syntax-highlighted previews |
+| tree, lazydocker, thefuck | `tre`, `lz`, `tf` |
+
+Missing something later? `omb deps` installs it. When an update brings a feature that needs a new tool, `omb update` offers to install it, and automatic updates tell you to run `omb deps`.
 
 ---
 
@@ -154,7 +164,7 @@ Project-local notes in `notes.md` at the git root — handy context for you and 
 | | |
 |---|---|
 | <kbd>Ctrl+R</kbd> | History search |
-| <kbd>Ctrl+F</kbd> | Open the file picker. Press <kbd>Ctrl+F</kbd> again inside it to toggle between Files and Text (requires ripgrep). |
+| <kbd>Ctrl+F</kbd> | Open the file picker. Press <kbd>Ctrl+F</kbd> again inside it to toggle between Files and Text — search for a string you saw in the UI and jump to the line that contains it. |
 | `ff [scope]` | The same finder as a command — `ff recent` to find the file you just saved somewhere |
 | <kbd>Ctrl+T</kbd> | fzf's plain file search |
 | <kbd>Alt+C</kbd> | Fuzzy `cd` |
@@ -162,7 +172,7 @@ Project-local notes in `notes.md` at the git root — handy context for you and 
 | `fcd [query]` | Fuzzy `cd` into a subdirectory |
 | `fh [query]` | Pick a past command onto the prompt |
 
-**Files.** Tab cycles through here, home, and recently modified files. Enter inserts the path at your cursor, Ctrl+O jumps to the containing folder, and Ctrl+Space marks several files.
+**Files.** Tab cycles through here, home, and recently modified files. Enter inserts the path at your cursor, Ctrl+O takes your shell to the file's folder (the prompt updates, and anything you'd typed comes back), and Ctrl+Space selects more than one file for Enter to insert.
 
 **Text.** Type a literal string inside the picker to see matching lines with a preview. Tab switches between the current directory and Git root when they differ. Enter opens the match at its line in your editor, Ctrl+O jumps to its folder, and Esc returns to your prompt.
 
@@ -183,6 +193,7 @@ See [`config.example.zsh`](config.example.zsh) for every option. Custom plugins 
 ```bash
 omb update      # update right now (shows what changed)
 omb doctor      # check dependencies, .zshrc, PATH, plugin syntax, load errors
+omb deps        # install missing tools (ripgrep, fzf, fd, bat, …)
 omb changelog   # recent changes
 omb uninstall   # remove (asks whether to keep your config and bookmarks)
 ```

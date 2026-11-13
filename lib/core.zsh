@@ -144,7 +144,7 @@ function _ombd_daily_tip {
   (( ${+functions[work]} )) && tips+=('Use work for a quick overview of your current repo.')
   (( ${+functions[switch]} )) && tips+=('Use switch to pick a Git branch.')
   (( ${+functions[ff]} )) && tips+=('Press Ctrl+F to find a file, then Tab to switch scope.')
-  if (( ${+functions[ff]} )) && ombd_has rg; then
+  if (( ${+functions[ff]} )); then
     tips+=('Press Ctrl+F twice to search for text inside files.')
   fi
   tip="${tips[10#$today % ${#tips} + 1]}"
@@ -223,6 +223,8 @@ _ombd_reload_check() {
   # updates that happened in the background.
   if [[ "$kind" == auto && -n "$REPLY" ]]; then
     print -r -- "[oh-my-bd] $(ombd_color green "updated $REPLY → $OMBD_VERSION") $(ombd_color dim '· omb changelog')"
+    local -a missing; missing=(${(f)"$(ombd_missing_tools)"})
+    (( ${#missing} )) && print -r -- "[oh-my-bd] $(ombd_color yellow "new features need: ${missing[*]}") — run $(ombd_color bold 'omb deps')"
   fi
 }
 

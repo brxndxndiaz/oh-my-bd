@@ -64,9 +64,9 @@ list_recent() {
 header() {
   local here="${PWD/#$HOME/~}"
   case "$1" in
-    here)       print -r -- "▸ HERE ($here)   ·   Tab: everywhere   ·   Ctrl+O: cd to file's folder" ;;
-    everywhere) print -r -- "▸ EVERYWHERE (~)   ·   Tab: recently modified   ·   Ctrl+O: cd to file's folder" ;;
-    recent)     print -r -- "▸ RECENTLY MODIFIED (last ${RECENT_DAYS} days, newest first)   ·   Tab: here   ·   Ctrl+O: cd" ;;
+    here)       print -r -- "▸ HERE  $here   ·   Tab → everywhere" ;;
+    everywhere) print -r -- "▸ EVERYWHERE  ~   ·   Tab → recently modified" ;;
+    recent)     print -r -- "▸ RECENTLY MODIFIED  last ${RECENT_DAYS} days   ·   Tab → here" ;;
   esac
 }
 
@@ -77,19 +77,51 @@ list() {
 }
 
 # Display text is separate from the quoted path and numeric line used for actions.
+# One output row: quoted absolute path <TAB> line <TAB> display text.
+text_row() {  # filename line content
+  print -r -- "${(qqqq)${1:a}}"$'\t'"$2"$'\t'"${(V)1}:$2: ${(V)${3[1,500]}}"
+}
+
 list_text() {
-  local root="$1" query="$2" filename match line
+  local root="$1" query="$2" filename match line content
   [[ -n "$query" ]] || return 0
   cd -- "$root" || return 1
   # fzf reloads run in a background process group. Allow zsh's pipeline setup
   # to proceed when its terminal-control call is denied.
   trap '' TTOU
-  rg --no-config --color=never --null --with-filename --line-number --no-heading \
-    --fixed-strings --smart-case --max-columns=500 --max-columns-preview -- "$query" . |
-    while IFS= read -r -d '' filename && IFS= read -r match; do
-      line="${match%%:*}"
-      print -r -- "${(qqqq)${filename:a}}"$'\t'"${line}"$'\t'"${(V)filename}:${line}: ${(V)${match#*:}}"
-    done
+  local engine="${OMBD_TEXT_ENGINE:-auto}"
+  if [[ "$engine" == auto ]]; then
+    if (( $+commands[rg] )); then engine=rg
+    elif git rev-parse --is-inside-work-tree >/dev/null 2>&1; then engine=git
+    else engine=grep; fi
+  fi
+  # Smart case like ripgrep: case-insensitive unless the query has a capital.
+  local -a icase; [[ "$query" == *[[:upper:]]* ]] || icase=(-i)
+
+  case "$engine" in
+    rg)
+      rg --no-config --color=never --null --with-filename --line-number --no-heading \
+        --fixed-strings --smart-case --max-columns=500 --max-columns-preview -- "$query" . |
+        while IFS= read -r -d '' filename && IFS= read -r match; do
+          text_row "${filename#./}" "${match%%:*}" "${match#*:}"
+        done ;;
+    git)
+      # Tracked + untracked files, honouring .gitignore; hidden files skipped like rg.
+      git grep -z -n -I -F --untracked "${icase[@]}" -- "$query" ':!:**/.*' ':!:.*' |
+        while IFS= read -r -d '' filename && IFS= read -r -d '' line && IFS= read -r content; do
+          text_row "$filename" "$line" "$content"
+        done ;;
+    grep)
+      # Name the top-level entries (no dotfiles) rather than ".", because
+      # --exclude-dir='.*' would otherwise exclude the search root itself.
+      local -a top; top=(*(N))
+      (( ${#top} )) || return 0
+      grep -rIn -H --null -F "${icase[@]}" --exclude='.*' --exclude-dir='.*' \
+        --exclude-dir=node_modules -- "$query" "${top[@]}" |
+        while IFS= read -r -d '' filename && IFS= read -r match; do
+          text_row "${filename#./}" "${match%%:*}" "${match#*:}"
+        done ;;
+  esac
   local result=${pipestatus[1]}
   (( result <= 1 ))
 }

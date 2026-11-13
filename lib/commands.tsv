@@ -96,5 +96,6 @@ fzf	fcd [query]	Fuzzy cd into a subdirectory
 fzf	fh [query]	Pick from history onto the prompt
 omb	omb	Command palette (also Ctrl+X Ctrl+O)
 omb	omb doctor	Diagnose your setup
+omb	omb deps	Install missing tools (ripgrep, fzf, fd, bat)
 omb	omb update	Update oh-my-bd
 omb	omb config	Edit your config

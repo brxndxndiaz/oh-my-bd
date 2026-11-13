@@ -40,6 +40,7 @@ _ombd_omb() {
     'search:search commands'
     'cheatsheet:one-page reference'
     'doctor:run diagnostics'
+    'deps:install missing tools'
     'update:update oh-my-bd'
     'config:edit your config file'
     'add:create a custom plugin'

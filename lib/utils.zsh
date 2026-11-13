@@ -139,3 +139,20 @@ ombd_sha() {
   else cksum -- "$1" | cut -d' ' -f1-2 | tr ' ' '-'
   fi
 }
+
+# Tools oh-my-bd features rely on: command → what it powers.
+# Keep in sync with step 2 of install.sh (`omb deps` installs them).
+typeset -gA OMBD_TOOLS=(
+  fzf 'pickers and fuzzy search'
+  rg  'fast text search (Ctrl+F twice)'
+  fd  'fast file search'
+  bat 'syntax-highlighted previews'
+)
+
+# Print the recommended tools that aren't installed, one per line.
+ombd_missing_tools() {
+  local t
+  for t in fzf rg fd bat; do
+    ombd_has "$t" || print -r -- "$t"
+  done
+}

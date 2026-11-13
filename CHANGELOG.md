@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.0
+
+### Fixed
+- Text search (<kbd>Ctrl+F</kbd> twice) silently did nothing without ripgrep, and the installer never offered ripgrep. It now works everywhere: ripgrep when installed, otherwise `git grep` inside a repo (honours `.gitignore`) or `grep` — same literal, smart-case matching, skipping hidden files and `node_modules`.
+- <kbd>Ctrl+O</kbd> in the <kbd>Ctrl+F</kbd> picker changed folder without redrawing the prompt, so it looked like nothing happened. It now runs a real `cd` from the command line (like fzf's <kbd>Alt+C</kbd>): the prompt updates, autoenv runs, it's in your history, and anything you'd typed comes back.
+- The picker's key hints were cut off next to the preview. They're shorter now, and on narrow terminals (like VS Code's panel) the preview moves below the list.
+- The installer asked apt/dnf for a package named `fd`; the package there is `fd-find`, so the install failed. apt now refreshes its package list before the first install.
+
+### Added
+- The installer offers every tool a feature uses — fzf, ripgrep, fd, bat, plus tree, lazydocker and thefuck — and says what each one powers. `bat` is linked from Debian's `batcat`, like `fd` from `fdfind`.
+- `omb deps` installs whatever's missing, any time.
+- `omb update` offers tools that new features need; automatic updates mention them next to the update notice.
+- `omb doctor` lists recommended tools with what each powers and how to install them.
+
 ## 2.2.0
 
 ### Changed
