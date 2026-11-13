@@ -34,17 +34,57 @@ function _ombd_git_pick_branch {
 
 # Switch to a branch name as shown by ombd_git_branch_refs. Handles
 # "origin/foo" by tracking it instead of creating a branch called origin/foo.
+# Ask a remote whether it has <branch>, fetching it into refs/remotes/<remote>/
+# so it can be tracked. Never prompts for credentials (fails quietly offline).
+function _ombd_git_fetch_branch {
+  local remote="$1" branch="$2"
+  GIT_TERMINAL_PROMPT=0 git fetch --quiet "$remote" \
+    "+refs/heads/${branch}:refs/remotes/${remote}/${branch}" 2>/dev/null
+}
+
+# True when a local branch was created and never committed to (its reflog
+# holds only the "Created from" entry) — i.e. it's safe to repoint it.
+function _ombd_git_branch_untouched {
+  local -a log; log=("${(@f)$(git reflog show --format=%gs "refs/heads/$1" -- 2>/dev/null)}")
+  (( ${#log} == 1 )) && [[ "${log[1]}" == "branch: Created from"* ]]
+}
+
+# The current branch has no upstream but <remote>/<same name> exists: usually
+# the branch was created before the remote one had been fetched. Connect them.
+function _ombd_git_adopt_remote {
+  local branch="$1" remote="${2:-origin}"
+  git show-ref --verify --quiet "refs/remotes/$remote/$branch" || return 1
+  if _ombd_git_branch_untouched "$branch"; then
+    print "${OMBD_C_YELLOW}'$branch' was created locally before the remote branch was fetched.${OMBD_C_RESET}"
+    if ombd_confirm "Point it at $remote/$branch and track it? (uncommitted changes are kept)" y; then
+      git reset --keep "$remote/$branch" && git branch --quiet --set-upstream-to="$remote/$branch" &&
+        print "Now tracking $remote/$branch."
+      return
+    fi
+    return 1
+  fi
+  # It has commits of its own: just connect it; the next pull rebases them.
+  git branch --quiet --set-upstream-to="$remote/$branch" && print "Now tracking $remote/$branch."
+}
+
 function _ombd_git_switch_to {
   local branch="$1" remote rest
   [[ -z "$branch" ]] && return 1
   if git show-ref --verify --quiet "refs/heads/$branch"; then
-    git switch "$branch"; return
+    git switch "$branch" || return
+    # No upstream yet? Connect it if the remote has the same branch.
+    if ! git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+      for remote in ${(f)"$(git remote)"}; do
+        _ombd_git_fetch_branch "$remote" "$branch" && { _ombd_git_adopt_remote "$branch" "$remote"; break; }
+      done
+    fi
+    return 0
   fi
   remote="${branch%%/*}" rest="${branch#*/}"
   if [[ "$branch" == */* ]] && git remote | grep -qx -- "$remote" &&
      git show-ref --verify --quiet "refs/remotes/$branch"; then
     if git show-ref --verify --quiet "refs/heads/$rest"; then
-      git switch "$rest"
+      _ombd_git_switch_to "$rest"
     else
       git switch --track "$branch"
     fi
@@ -56,6 +96,13 @@ function _ombd_git_switch_to {
       git switch --track "$r/$branch"; return
     fi
   done
+  # Not known locally: the remote may have it even though we haven't fetched yet.
+  for r in ${(f)"$(git remote)"}; do
+    if _ombd_git_fetch_branch "$r" "$branch"; then
+      git switch --track "$r/$branch"; return
+    fi
+  done
+  print "${OMBD_C_DIM}'$branch' isn't on any remote — creating it from $(git branch --show-current 2>/dev/null || print HEAD).${OMBD_C_RESET}"
   git switch -c "$branch"
 }
 
@@ -106,6 +153,9 @@ function commit {
 }
 
 # --- SWITCH --- `switch` opens a picker (type a new name + Tab to create it).
+# Branch list for the picker, runnable in a fresh zsh (fzf reload).
+typeset -g _ombd_branch_list_cmd='source "$OMBD_DIR/lib/utils.zsh"; source "$OMBD_DIR/plugins/git.zsh"; ombd_git_branch_refs | grep -vx -- "$(git branch --show-current 2>/dev/null)"'
+
 function switch {
   local branch="$1"
   if [[ -z "$branch" ]]; then
@@ -114,7 +164,8 @@ function switch {
       out="$(ombd_git_branch_refs | grep -vx -- "$(git branch --show-current 2>/dev/null)" |
         fzf --height=70% --layout=reverse --border --prompt='Switch: ' --print-query \
           --expect=tab \
-          --header='Enter: switch  •  Tab: create branch named after your query' \
+          --bind "start:reload:GIT_TERMINAL_PROMPT=0 git fetch --quiet --prune 2>/dev/null; zsh -fc ${(qq)_ombd_branch_list_cmd}" \
+          --header='Enter: switch · Tab: new branch named as typed' \
           --preview='git log --oneline --graph --color=always -20 {} --' --preview-window=right:55%)"
       local -a lines; lines=("${(@f)out}")       # keep empty lines (empty key = Enter)
       query="${lines[1]}" key="${lines[2]}" sel="${lines[3]}"
@@ -217,7 +268,21 @@ function root {
 function gsync { git pull --rebase --autostash && git push; }
 function fetch { git fetch --all --prune "$@"; }
 push()  { git push "$@"; }
-pull()  { git pull --rebase --autostash "$@"; }
+# `pull` on a branch with no upstream connects it to the remote branch of the
+# same name first (instead of git's "no tracking information" error).
+function pull {
+  if (( $# == 0 )) && ! git rev-parse --abbrev-ref '@{u}' >/dev/null 2>&1; then
+    local b; b="$(git branch --show-current 2>/dev/null)"
+    [[ -z "$b" ]] && { print "Not on a branch."; return 1; }
+    if _ombd_git_fetch_branch origin "$b"; then
+      _ombd_git_adopt_remote "$b" origin || return 1
+    else
+      print "'$b' isn't on origin yet. Push it with: publish"
+      return 1
+    fi
+  fi
+  git pull --rebase --autostash "$@"
+}
 
 # --- LOG --- git graph inside a repo; falls through to the system `log`
 # (macOS unified logging) outside a repo or for its subcommands.

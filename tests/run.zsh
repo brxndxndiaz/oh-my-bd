@@ -239,6 +239,50 @@ if group git; then
 fi
 
 # ============================================================
+if group remote-branches; then
+  sandbox remote-branches
+  make_repos
+  # A teammate pushes a branch after we cloned: we have no ref for it yet.
+  git -C ../up switch -q -c dev-139 && print fix > ../up/fix.txt && git -C ../up add fix.txt &&
+    git -C ../up commit -qm "teammate work" && git -C ../up switch -q main
+  no "precondition: branch not fetched yet" git show-ref --verify --quiet refs/remotes/origin/dev-139
+  out="$(omb_zsh 'switch dev-139' 2>&1)"
+  eq "switch to an unfetched remote branch tracks it" "$(git rev-parse --abbrev-ref @{u} 2>/dev/null)" "origin/dev-139"
+  eq "…and starts from the teammate's work" "$(git log -1 --format=%s)" "teammate work"
+  git switch -q main
+
+  # The broken state from before the fix: created locally, then fetched.
+  git -C ../up switch -q -c dev-145 && git -C ../up commit -q --allow-empty -m "remote 145" && git -C ../up switch -q main
+  print mine > other.txt && git add other.txt && git commit -qm "unrelated local work" && git switch -q -c dev-145 && git fetch -q
+  print wip > wip.txt
+  OMBD_ASSUME_YES=1 omb_zsh 'pull' >/dev/null 2>&1
+  eq "pull repairs a branch created before fetching" "$(git rev-parse HEAD)" "$(git rev-parse origin/dev-145)"
+  eq "…tracks it" "$(git rev-parse --abbrev-ref @{u})" "origin/dev-145"
+  yes "…keeps uncommitted files" test -f wip.txt
+  rm wip.txt; git switch -q main
+
+  # Same repair via switch, when the user switches back to such a branch.
+  git -C ../up switch -q -c dev-150 && git -C ../up commit -q --allow-empty -m "remote 150" && git -C ../up switch -q main
+  git switch -q -c dev-150 && git switch -q main && git fetch -q
+  OMBD_ASSUME_YES=1 omb_zsh 'switch dev-150' >/dev/null 2>&1
+  eq "switch repairs it too" "$(git log -1 --format=%s)" "remote 150"
+
+  # A branch with its own commits is connected, never reset.
+  git switch -q -c dev-160 && git commit -q --allow-empty -m "my commit" && git switch -q main
+  git -C ../up switch -q -c dev-160 && git -C ../up commit -q --allow-empty -m "remote 160" && git -C ../up switch -q main
+  omb_zsh 'switch dev-160' >/dev/null 2>&1
+  eq "branch with own commits gets an upstream" "$(git rev-parse --abbrev-ref @{u})" "origin/dev-160"
+  eq "…and keeps its commits" "$(git log -1 --format=%s)" "my commit"
+  git switch -q main
+
+  out="$(omb_zsh 'switch brand-new-idea' 2>&1)"
+  eq "a name the remote doesn't have creates a branch" "$(git branch --show-current)" "brand-new-idea"
+  has "…and says so" "$out" "isn't on any remote"
+  out="$(omb_zsh 'pull' 2>&1)"
+  has "pull on an unpublished branch explains what to do" "$out" "publish"
+fi
+
+# ============================================================
 if group cdc; then
   sandbox cdc
   

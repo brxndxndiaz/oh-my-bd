@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.3.1
+
+### Fixed
+- `switch <branch>` created a new local branch when a teammate's branch of that name existed on GitHub but hadn't been fetched yet — so you ended up on the wrong code with no upstream. It now checks the remote first and tracks the real branch; it only creates one when the remote doesn't have it (and says so).
+- A branch created that way is repaired: `switch` or `pull` notices it has no upstream while the remote has the same branch, and — if you never committed on it — points it at the remote one and tracks it, keeping your uncommitted changes. A branch with its own commits is just connected, never reset.
+- `pull` on a branch without an upstream connects it to the remote branch of the same name instead of failing with "There is no tracking information", or tells you to `publish` if it isn't on the remote yet.
+- The `switch` picker refreshes from the remote as it opens, so newly pushed branches show up.
+
 ## 2.3.0
 
 ### Fixed
